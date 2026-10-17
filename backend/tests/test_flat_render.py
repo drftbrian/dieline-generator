@@ -173,3 +173,103 @@ def test_a_repainted_board_is_not_used(client, monkeypatch):
     det = _image(pid, v["id"], "_deterministic").astype(np.float32)
     assert np.abs(final - det).max() <= 0.05 * 255 + 1
     assert final[det.max(-1) == 0].max() == 0
+
+
+# ---- board look v2 (physical board) against v1 (first look, kept for comparison) ----------
+
+V1_SHA = "81bfe2628261ce96e8c10cd9a27b52771401ae99ffc0b83adad9cd5cb6e7e9e7"
+
+
+def _looks(edge=1024):
+    from app.spec.models import FLAT_LOOK_V1, FLAT_LOOKS
+
+    L = _layers_margin(edge, FLAT_LOOK_V1.lighting.margin)
+    return L, {k: shading.render_parts(L, FLAT_LOOKS[k]) for k in ("v1", "v2")}
+
+
+def _layers_margin(edge, margin):
+    from app.pdf.analyze import build_spec, detect, extract
+
+    src = fixture_bytes("named_spot")
+    ex = extract(src)
+    return build_layers(src, build_spec(ex, detect(ex)), edge, margin)
+
+
+def test_v1_look_is_kept_unchanged():
+    _, parts = _looks()
+    assert hashlib.sha256(shading.to8(parts["v1"].rgb).tobytes()).hexdigest() == V1_SHA
+
+
+def test_v2_changes_brightness_only_and_keeps_geometry():
+    L, parts = _looks(1400)
+    a, b = parts["v1"], parts["v2"]
+    assert np.array_equal(a.sil, b.sil) and np.array_equal(a.print_rgb, b.print_rgb)
+    # Inked pixels away from 0 and 1 (a channel clipped at white has no ratio to compare).
+    inked = (b.sil >= 0.999) & (L.artwork[..., 3] > 0.5) & (a.rgb.min(-1) > 0.08)
+    inked &= (a.rgb.max(-1) < 0.95) & (b.rgb.max(-1) < 0.95)
+    ratio = b.rgb / np.maximum(a.rgb, 1e-3)
+    assert (ratio.max(-1) - ratio.min(-1))[inked].max() < 1e-3  # no tint, no redraw
+    outside = b.sil <= 1e-3
+    assert b.rgb[outside].max() == 0  # solid black ground
+    assert 0.85 < b.gain[b.sil >= 0.999].min() and b.gain.max() < 1.05
+
+
+def test_v2_fibres_show_close_up_not_at_viewing_size():
+    from app.spec.models import FLAT_LOOK
+
+    L = _layers_margin(1400, 12)
+    tex = shading.fibre_texture(L, FLAT_LOOK.material)
+
+    def at(k):
+        h, w = (tex.shape[0] // k) * k, (tex.shape[1] // k) * k
+        v = tex[:h, :w].reshape(h // k, k, w // k, k).mean(axis=(1, 3))
+        return float((v - ndimage.gaussian_filter(v, 2)).std())
+
+    assert at(1) > 0.002  # detectable at high zoom (about half a grey level and more)
+    assert at(4) < 0.002 and at(4) < 0.5 * at(1)  # fades at normal viewing size
+    # No mottling: nothing left at 1-10 mm.
+    px = L.px_per_mm
+    band = ndimage.gaussian_filter(tex, px) - ndimage.gaussian_filter(tex, 10 * px)
+    assert float(band.std()) < 0.0005
+
+
+def test_v2_edge_is_a_hair_of_board_thickness():
+    from app.spec.models import FLAT_LOOK
+
+    L = _layers_margin(1400, 12)
+    rim = shading.edge_rim(L, FLAT_LOOK.material, shading.light_dir(315))
+    d = ndimage.distance_transform_edt(L.silhouette > 0.5)
+    assert np.abs(rim[L.silhouette <= 0.5]).max() == 0  # never outside the cut
+    assert -0.05 < rim.min() and rim.max() < 0.03  # restrained: no outline or glow
+    assert np.abs(rim[d > 2 * L.px_per_mm]).max() < 0.005  # gone within ~2 mm
+
+
+def test_v2_folds_are_soft_scores_never_cuts():
+    from app.spec.models import FLAT_LOOK
+
+    L = _layers_margin(1400, 12)
+    r = shading.score_relief(L, FLAT_LOOK.material, shading.light_dir(315))
+    on = L.crease > 0.5
+    assert -0.1 < r.min() and r[on].mean() < 0 and r.max() > 0.01
+    # Smooth: no step between neighbouring pixels bigger than a couple of percent.
+    assert np.abs(np.diff(r, axis=0)).max() < 0.03 and np.abs(np.diff(r, axis=1)).max() < 0.03
+
+
+def test_v2_light_is_even_overhead():
+    _, parts = _looks(1400)
+    g = parts["v2"].gain
+    solid = parts["v2"].sil >= 0.999
+    h, w = g.shape
+    left, right = g[:, : w // 2][solid[:, : w // 2]], g[:, w // 2 :][solid[:, w // 2 :]]
+    top, bottom = g[: h // 2][solid[: h // 2]], g[h // 2 :][solid[h // 2 :]]
+    assert abs(np.median(left) - np.median(right)) < 0.005  # no directional light
+    assert abs(np.median(top) - np.median(bottom)) < 0.005
+
+
+def test_look_can_be_chosen_per_render(client):
+    pid, _ = upload(client, "named_spot")
+    job, v1 = _flat(client, pid, look="v1")
+    assert job["status"] == "done" and v1["verify"]["look"] == "v1"
+    job, v2 = _flat(client, pid)
+    assert job["status"] == "done" and v2["verify"]["look"] == "v2", v2["verify"]
+    assert v2["verify"]["match"] is True

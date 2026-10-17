@@ -120,14 +120,15 @@ def generate(pid: str, request: Request, body: GenerateIn | None = None):
     if replay := idempotent_replay(request, f"generate:{pid}"):
         return replay
     mode = (body.mode if body else None) or get_settings().flat_render_mode
+    look = (body.look if body else None) or get_settings().flat_look
     _check_can_start(repo.project_or_404(pid), needs_model=mode == "ai_appearance")
     out = _start(
         pid,
         "generate",
-        lambda ctx, vid: pipeline.run_generate(ctx, vid, mode),
+        lambda ctx, vid: pipeline.run_generate(ctx, vid, mode, look),
         kind="flat",
         reference_ids=[],
-        settings={"flat_mode": mode},
+        settings={"flat_mode": mode, "flat_look": look},
     )
     remember(request, f"generate:{pid}", 202, out.model_dump())
     return out

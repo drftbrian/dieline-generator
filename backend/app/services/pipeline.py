@@ -30,7 +30,7 @@ from app.pdf.validate import validate_pdf
 from app.render import look, shading, surface
 from app.render.layers import Layers, build_layers, frame, make_artwork_pdf, structure_key
 from app.services import brief, specs
-from app.spec.models import FLAT_LOOK, AiSuggestion, Specification
+from app.spec.models import FLAT_LOOK, FLAT_LOOKS, AiSuggestion, Specification
 from app.storage import repo
 
 log = logging.getLogger(__name__)
@@ -512,7 +512,9 @@ def ai_light(
     return light, {**info, "ai_used": True}
 
 
-def run_generate(ctx: JobContext, vid: str, mode: FlatMode | None = None) -> dict:
+def run_generate(
+    ctx: JobContext, vid: str, mode: FlatMode | None = None, look_style: str | None = None
+) -> dict:
     """Step 2: one flat, unfolded render at the final size, on black.
 
     The print, board, cuts, folds and background are deterministic (see ``shading``). In
@@ -523,17 +525,18 @@ def run_generate(ctx: JobContext, vid: str, mode: FlatMode | None = None) -> dic
         raise ApiError(404, "VERSION_NOT_FOUND", "버전을 찾을 수 없습니다.")
     spec = specs.load(repo.project_or_404(pid))
     mode = mode or get_settings().flat_render_mode
+    flat_look = FLAT_LOOKS[look_style or get_settings().flat_look]
     long_edge = get_settings().flat_long_edge
     vdir = repo.project_dir(pid) / "versions"
     vdir.mkdir(exist_ok=True)
 
     ctx.stage("render", "running")
     layers = get_layers(pid, spec, long_edge, FLAT_LOOK.lighting.margin)
-    parts = shading.render_parts(layers, FLAT_LOOK)
+    parts = shading.render_parts(layers, flat_look)
     det = shading.to8(parts.rgb)
     Image.fromarray(det).save(vdir / f"{vid}_deterministic.png")
     h, w = det.shape[:2]
-    ctx.stage("render", "done", {"size": [w, h], "mode": mode})
+    ctx.stage("render", "done", {"size": [w, h], "mode": mode, "look": flat_look.style})
     ctx.check_cancel()
 
     light = np.ones((h, w), np.float32)
@@ -584,7 +587,7 @@ def run_generate(ctx: JobContext, vid: str, mode: FlatMode | None = None) -> dic
         colour_regions=figma_colour_regions(pid, layers, print8),
         px_per_mm=layers.px_per_mm,
     )
-    check.update(info, mode=mode, size=[w, h])
+    check.update(info, mode=mode, look=flat_look.style, size=[w, h])
     ctx.stage("verify", "done", check)
     _, crop = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
     deliver(

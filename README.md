@@ -26,6 +26,9 @@ English summary: [아래 English 섹션](#english)을 보세요.
   - 종이결·접는 자국·빛은 **회색조 밝기(gain)만** 곱합니다. 글자·로고·그라데이션의 모양과 색은 그대로입니다.
   - 칼선 외곽·구멍·검은 배경은 Figma 구조에서 정확히 나옵니다.
   - 같은 입력이면 **매번 똑같은 이미지**가 나옵니다. Gemini 키가 없어도 됩니다.
+  - 판지 룩은 두 가지입니다 (`FLAT_LOOK`, 또는 API에서 `{"look": "v1"}`):
+    - **v2 (기본, 실물 판지)**: 가까이 확대해야 보이는 아주 고운 종이 섬유결(가로 방향), 칼선 바로 안쪽 0.3mm의 은은한 두께감, 부드럽게 눌린 접는선 홈, 위에서 고르게 비추는 소프트박스 조명.
+    - **v1 (이전 룩)**: 비교용으로 그대로 남겨 둔 첫 번째 결정적 룩.
 - 선택: **AI 조명 모드** (`FLAT_RENDER_MODE=ai_appearance`, 또는 API에서 `{"mode": "ai_appearance"}`).
   - Gemini(Nano Banana Pro)에 `flat_render.md` 프롬프트 + Image 1(우리 렌더) + Image 2(`flat_look.png`)를 보냅니다.
   - 모델 결과에서는 **글자보다 훨씬 큰 크기의 부드러운 빛 얼룩만** 가져옵니다 (최대 −4%~+3%). 모델이 그린 글자·종이결·테두리·배경은 버립니다.
@@ -108,6 +111,12 @@ AI 이미지 모델은 글자를 잘 틀립니다. 그래서 이 앱은 **모델
 cd backend && uv run python scripts/flat_qa.py <프로젝트ID> <버전ID> --compare <예전버전ID> --out qa.png
 ```
 
+**판지 룩 전/후 비교 (v1 ↔ v2):** 같은 레이어로 두 룩을 그려 작은 글자·큰 글자·칼선+접는선·빈 판지를 100%와 400%로 나란히 보여 주고, 인쇄가 밝기만 달라졌는지(색 비율 차이 0)와 종이결 세기를 숫자로 출력합니다.
+
+```
+cd backend && uv run python scripts/look_compare.py <프로젝트ID> --out looks.png
+```
+
 ---
 
 ## 처음 설치하고 실행하기
@@ -127,6 +136,7 @@ GEMINI_API_KEY=...      # Gemini: ③ 합성, ② AI 조명 모드 (기본 ②�
 FIGMA_TOKEN=...         # Figma 개인 액세스 토큰 (권한: file_content:read)
 FLAT_RENDER_MODE=deterministic   # 선택: ai_appearance 로 바꾸면 ②에 AI 조명을 더함
 FLAT_LONG_EDGE=4096              # 선택: ② 결과의 긴 변 픽셀 (1024~8192)
+FLAT_LOOK=v2                     # 선택: v1 로 바꾸면 이전 판지 룩
 ```
 
 - 빈 줄(`KEY=`)은 "설정 안 됨"으로 취급합니다.

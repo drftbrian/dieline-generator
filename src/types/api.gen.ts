@@ -677,6 +677,8 @@ export interface components {
         GenerateIn: {
             /** Mode */
             mode?: ("deterministic" | "ai_appearance") | null;
+            /** Look */
+            look?: ("v1" | "v2") | null;
         };
         /** GenerateOut */
         GenerateOut: {
@@ -1199,6 +1201,8 @@ export interface components {
             } | null;
             /** Mode */
             mode?: ("deterministic" | "ai_appearance") | null;
+            /** Look */
+            look?: ("v1" | "v2") | null;
             /** Size */
             size?: number[] | null;
             /** Ai Used */

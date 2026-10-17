@@ -158,15 +158,25 @@ class Lighting(BaseModel):
     margin: int = Field(12, ge=0, le=40)  # % of package size
 
 
+LookStyle = Literal["v1", "v2"]
+
+
 class Look(BaseModel):
-    """The fixed look of the flat render (step 2). Not user-editable."""
+    """The fixed look of the flat render (step 2). Not user-editable.
+
+    ``style`` picks the board model: "v2" (physical: paper fibres, cut-edge thickness, soft
+    fold scores, overhead light) or "v1" (the first deterministic look, kept for comparison).
+    """
 
     material: Material = Material()
     lighting: Lighting = Lighting()
+    style: LookStyle = "v2"
 
 
 # Matte white board on solid black, top-down, soft even light (see prompts/flat_look.png).
 FLAT_LOOK = Look()
+FLAT_LOOK_V1 = Look(style="v1")
+FLAT_LOOKS: dict[str, Look] = {"v1": FLAT_LOOK_V1, "v2": FLAT_LOOK}
 
 
 class Specification(BaseModel):

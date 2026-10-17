@@ -61,6 +61,37 @@ def _sheet(rows: list[list[Image.Image]], bg=(25, 25, 25)) -> Image.Image:
     return out
 
 
+def crop_points(pid: str, L, sil: np.ndarray) -> list[tuple[str, float, float]]:
+    """Where to look closely: finest text, largest text (logo), a cut edge next to a fold."""
+    from app.services import pipeline
+
+    h, w = sil.shape
+    content = pipeline.figma_content(pid) or {}
+    texts = [t for t in content.get("texts", []) if t.get("bbox") and not t.get("technical")]
+    ox, oy = L.origin
+
+    def centre(t):
+        x0, y0, x1, y1 = t["bbox"]
+        return ((x0 + x1) / 2 - ox) * L.scale, ((y0 + y1) / 2 - oy) * L.scale
+
+    def on_board(t):
+        x, y = centre(t)
+        return 0 <= x < w and 0 <= y < h and sil[int(y), int(x)] > 0.5
+
+    texts = [t for t in texts if on_board(t)]
+    points = []
+    if texts:
+        fine = min(texts, key=lambda t: t.get("size") or 99)
+        big = max(texts, key=lambda t: t.get("size") or 0)
+        points += [("finest text", *centre(fine)), ("largest text", *centre(big))]
+    edge = (sil > 0.01) & (sil < 0.99)
+    near_fold = ndimage.binary_dilation(L.crease > 0.3, iterations=round(4 * L.px_per_mm))
+    ys, xs = np.nonzero(edge & near_fold) if (edge & near_fold).any() else np.nonzero(edge)
+    if ys.size:
+        points.append(("cut edge + fold", float(xs[ys.size // 2]), float(ys[ys.size // 2])))
+    return points
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("pid")
@@ -109,30 +140,7 @@ def main() -> None:
     ]
     overview = [p for p in overview if p is not None]
 
-    # Crop points: finest text, largest text (logo) and a cut edge next to a fold.
-    content = pipeline.figma_content(pid) or {}
-    texts = [t for t in content.get("texts", []) if t.get("bbox") and not t.get("technical")]
-    ox, oy = L.origin
-
-    def centre(t):
-        x0, y0, x1, y1 = t["bbox"]
-        return ((x0 + x1) / 2 - ox) * L.scale, ((y0 + y1) / 2 - oy) * L.scale
-
-    def on_board(t):
-        x, y = centre(t)
-        return 0 <= x < w and 0 <= y < h and parts.sil[int(y), int(x)] > 0.5
-
-    texts = [t for t in texts if on_board(t)]
-    points = []
-    if texts:
-        fine = min(texts, key=lambda t: t.get("size") or 99)
-        big = max(texts, key=lambda t: t.get("size") or 0)
-        points += [("finest text", *centre(fine)), ("largest text", *centre(big))]
-    edge = (parts.sil > 0.01) & (parts.sil < 0.99)
-    near_fold = ndimage.binary_dilation(L.crease > 0.3, iterations=round(4 * L.px_per_mm))
-    ys, xs = np.nonzero(edge & near_fold) if (edge & near_fold).any() else np.nonzero(edge)
-    if ys.size:
-        points.append(("cut edge + fold", float(xs[ys.size // 2]), float(ys[ys.size // 2])))
+    points = crop_points(pid, L, parts.sil)
     print("crops (px, 160x160 shown at 400%):", [(n, round(x), round(y)) for n, x, y in points])
 
     rows = [overview]
