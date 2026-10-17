@@ -4,13 +4,17 @@ import { ErrorNotice } from '@/components/ui/ErrorNotice'
 import { Spinner } from '@/components/ui/Spinner'
 import { JobStages, StepPanel, VerifyResult, VersionError } from '@/features/studio/StepPanel'
 import type { StudioRegionProps } from '@/features/studio/types'
-import { isMergeSource, pick, useVersions } from '@/features/studio/versions'
+import { isEnhanceable, isMergeSource, pick, useVersions } from '@/features/studio/versions'
 import { ko } from '@/i18n/ko'
 import { useCanvasStore } from '@/stores/useCanvasStore'
+import { EnhanceFailure, EnhanceResult, EnhanceStart } from './EnhancePanel'
 
 const t = ko.studio.flat
 
-/** ② 플랫 렌더: one flat, unfolded photoreal render in the fixed look. */
+/**
+ * ② 플랫 렌더: one flat, unfolded photoreal render in the fixed look, plus the optional
+ * AI 재질 보정 of a finished code render (always a new version; the source never changes).
+ */
 export function FlatPanel({ project }: StudioRegionProps) {
   const pid = project.id
   const start = useStartFlat(pid)
@@ -44,24 +48,32 @@ export function FlatPanel({ project }: StudioRegionProps) {
       {running.map((v) => (
         <JobStages key={v.id} version={v} />
       ))}
-      {last?.status === 'failed' && <VersionError version={last} />}
+      {last?.status === 'failed' &&
+        (last.enhancement ? <EnhanceFailure version={last} /> : <VersionError version={last} />)}
 
       {selected ? (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-ink-muted">{t.selected(selected.number)}</p>
-          {selected.legacy ? (
-            <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">{t.legacy}</p>
+        <>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-ink-muted">{t.selected(selected.number)}</p>
+            {selected.legacy ? (
+              <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">{t.legacy}</p>
+            ) : (
+              <VerifyResult verify={selected.verify} />
+            )}
+            <Button
+              className="w-full justify-center"
+              disabled={!isMergeSource(selected)}
+              onClick={() => useCanvasStore.getState().mergeWith(selected.id)}
+            >
+              {t.useForMerge}
+            </Button>
+          </div>
+          {selected.enhancement ? (
+            <EnhanceResult key={selected.id} projectId={pid} version={selected} versions={versions} />
           ) : (
-            <VerifyResult verify={selected.verify} />
+            isEnhanceable(selected) && <EnhanceStart key={selected.id} projectId={pid} source={selected} />
           )}
-          <Button
-            className="w-full justify-center"
-            disabled={!isMergeSource(selected)}
-            onClick={() => useCanvasStore.getState().mergeWith(selected.id)}
-          >
-            {t.useForMerge}
-          </Button>
-        </div>
+        </>
       ) : (
         running.length === 0 && <p className="text-xs text-ink-muted">{t.none}</p>
       )}

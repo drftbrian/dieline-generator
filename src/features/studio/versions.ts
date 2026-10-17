@@ -1,8 +1,16 @@
 import { useHistory } from '@/api/history'
 import type { Version } from '@/api/types'
+import { ko } from '@/i18n/ko'
 
 /** A flat render the merge can start from: finished, current pipeline, with a frame. */
 export const isMergeSource = (v: Version) => v.kind === 'flat' && v.status === 'done' && !v.legacy && !!v.frame
+
+/** A finished code render (no AI) that the optional AI 재질 보정 can start from. */
+export const isEnhanceable = (v: Version) =>
+  v.kind === 'flat' && v.status === 'done' && !v.legacy && !v.enhancement && v.verify?.mode === 'deterministic'
+
+/** What a version is, for labels: 플랫 렌더 / AI 재질 보정 / 레퍼런스 합성. */
+export const kindLabel = (v: Version) => ko.studio.generation.kinds[v.enhancement ? 'enhance' : v.kind]
 
 export function useVersions(projectId: string) {
   const history = useHistory(projectId)

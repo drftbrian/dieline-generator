@@ -44,3 +44,38 @@ export function ViewLabel({ text, legacy }: { text: string; legacy?: boolean }) 
     </div>
   )
 }
+
+/** Before/after divider for an AI-enhanced flat: original v3 on the left, AI 보정 on the right. */
+export function CompareControls() {
+  const on = useCanvasStore((s) => s.compare)
+  const split = useCanvasStore((s) => s.split)
+  const { setCompare, setSplit } = useCanvasStore.getState()
+  const c = t.compare
+  return (
+    <div
+      onClick={stop}
+      onPointerDown={stop}
+      className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-line bg-surface/95 px-3 py-1.5 text-xs shadow-sm"
+    >
+      <label className="flex items-center gap-1.5">
+        <input type="checkbox" checked={on} onChange={(e) => setCompare(e.target.checked)} />
+        {c.toggle}
+      </label>
+      {on && (
+        <>
+          <span className="ml-1 text-ink-muted">{c.original}</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(split * 100)}
+            aria-label={c.split}
+            onChange={(e) => setSplit(Number(e.target.value) / 100)}
+            className="w-40 accent-accent"
+          />
+          <span className="text-ink-muted">{c.enhanced}</span>
+        </>
+      )}
+    </div>
+  )
+}

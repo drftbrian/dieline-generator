@@ -3,10 +3,11 @@ import { sourceFileUrl } from '@/api/source'
 import { Spinner } from '@/components/ui/Spinner'
 import type { StudioRegionProps } from '@/features/studio/types'
 import { useShownVersion } from '@/features/studio/useShownVersion'
+import { useVersions } from '@/features/studio/versions'
 import { ko } from '@/i18n/ko'
 import { formatDateTime } from '@/lib/format'
 import { useCanvasStore } from '@/stores/useCanvasStore'
-import { ViewLabel, ZoomControls } from './CanvasControls'
+import { CompareControls, ViewLabel, ZoomControls } from './CanvasControls'
 import { GenerationStatus } from './GenerationStatus'
 import { SourceLayer } from './SourceLayer'
 import { useImageSize } from './useImageSize'
@@ -24,6 +25,15 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
   const version = useShownVersion(pid)
   const imageUrl = view === 'source' ? null : (version?.image_url ?? null)
   const imageSize = useImageSize(imageUrl)
+  // AI 재질 보정: the untouched original v3 render, laid over the left of the divider.
+  const compareOn = useCanvasStore((s) => s.compare)
+  const split = useCanvasStore((s) => s.split)
+  const { flats } = useVersions(pid)
+  const enhancement = view === 'flat' ? version?.enhancement : null
+  // Only while the source render still exists (a deleted one has no image to compare with).
+  const originalUrl =
+    enhancement && flats.some((f) => f.id === enhancement.source_version_id) ? enhancement.source_image_url : null
+  const comparing = !!originalUrl && compareOn
 
   const page = { w: Math.round(spec.page.width_pt), h: Math.round(spec.page.height_pt) }
   const size = view === 'source' ? page : (imageSize ?? { w: 0, h: 0 })
@@ -57,7 +67,10 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
     view === 'source'
       ? t.labels.source
       : version
-        ? (view === 'flat' ? t.labels.flat : t.labels.merge)(version.number, formatDateTime(version.created_at))
+        ? (view === 'merge' ? t.labels.merge : version.enhancement ? t.labels.enhanced : t.labels.flat)(
+            version.number,
+            formatDateTime(version.created_at),
+          )
         : ''
   const empty = view !== 'source' && !version
 
@@ -79,6 +92,7 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                   <Spinner />
                 </div>
               )}
+              {originalUrl && imageSize && <CompareControls />}
               <ZoomControls vp={vp} />
             </>
           }
@@ -96,13 +110,35 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
             imageUrl &&
             imageSize &&
             version && (
-              <img
-                src={imageUrl}
-                alt={(view === 'flat' ? t.alt.flat : t.alt.merge)(version.number)}
-                draggable={false}
-                className="absolute top-0 left-0 max-w-none select-none"
-                style={{ width: imageSize.w, height: imageSize.h }}
-              />
+              <>
+                <img
+                  src={imageUrl}
+                  alt={(view === 'flat' ? t.alt.flat : t.alt.merge)(version.number)}
+                  draggable={false}
+                  className="absolute top-0 left-0 max-w-none select-none"
+                  style={{ width: imageSize.w, height: imageSize.h }}
+                />
+                {comparing && (
+                  <>
+                    <img
+                      src={originalUrl}
+                      alt={t.alt.original}
+                      draggable={false}
+                      className="absolute top-0 left-0 max-w-none select-none"
+                      style={{
+                        width: imageSize.w,
+                        height: imageSize.h,
+                        clipPath: `inset(0 ${(1 - split) * 100}% 0 0)`,
+                      }}
+                    />
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute top-0 bg-white shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                      style={{ left: split * imageSize.w, height: imageSize.h, width: 2 / vp.zoom, marginLeft: -1 / vp.zoom }}
+                    />
+                  </>
+                )}
+              </>
             )
           )}
         </Viewport>

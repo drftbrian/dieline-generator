@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { cancelJob, useJob } from '@/api/jobs'
 import type { Job, Version } from '@/api/types'
 import { ProgressBar } from '@/components/ui/controls'
-import { useVersions } from '@/features/studio/versions'
+import { kindLabel, useVersions } from '@/features/studio/versions'
 import { ko } from '@/i18n/ko'
 import { formatDuration } from '@/lib/format'
 import { useCanvasStore } from '@/stores/useCanvasStore'
@@ -58,7 +58,7 @@ function RunningGeneration({ version, onDone }: { version: Version; onDone: () =
       <div className="mt-2 flex justify-center">
         <div aria-live="polite" className="flex items-center gap-2 rounded-full border border-line bg-surface/95 px-3 py-1 text-xs shadow-sm">
           <span className="size-1.5 animate-pulse rounded-full bg-prov-generated" />
-          <span className="font-medium">{t.running(t.kinds[version.kind], formatDuration(elapsed))}</span>
+          <span className="font-medium">{t.running(kindLabel(version), formatDuration(elapsed))}</span>
           {stage && <span className="text-ink-muted">· {t.stages[stage] ?? stage}</span>}
           {version.job_id && (
             <button

@@ -6,6 +6,7 @@ import { ErrorNotice } from '@/components/ui/ErrorNotice'
 import { Spinner } from '@/components/ui/Spinner'
 import { ko } from '@/i18n/ko'
 import { cn } from '@/lib/cn'
+import { kindLabel } from './versions'
 
 const g = ko.studio.generation
 const v = ko.studio.flat.verify
@@ -31,7 +32,7 @@ export function JobStages({ version }: { version: Version }) {
   return (
     <div className="rounded-md border border-line bg-canvas/60 p-3 text-xs">
       <p className="mb-1.5 flex items-center gap-1.5 font-medium">
-        <Spinner className="size-3" /> v{version.number} {g.kinds[version.kind]}
+        <Spinner className="size-3" /> v{version.number} {kindLabel(version)}
       </p>
       <ul className="space-y-0.5">
         {(job?.stages ?? []).map((s) => (

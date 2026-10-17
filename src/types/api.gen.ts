@@ -412,6 +412,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/versions/{vid}/enhance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Enhance
+         * @description Optional AI material enhancement of a finished deterministic render. Makes a new
+         *     version; the source render is never changed. ``maps_from`` re-applies an earlier
+         *     enhancement's maps at a new strength without calling the model.
+         */
+        post: operations["start_enhance_api_projects__pid__versions__vid__enhance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/history": {
         parameters: {
             query?: never;
@@ -588,6 +610,39 @@ export interface components {
             /** Spot Colors */
             spot_colors: string[];
         };
+        /**
+         * EnhanceIn
+         * @description Post-render AI material enhancement of a finished deterministic flat render.
+         */
+        EnhanceIn: {
+            /**
+             * Strength
+             * @default 0.6
+             */
+            strength: number;
+            /** Reference Id */
+            reference_id?: string | null;
+            /** Maps From */
+            maps_from?: string | null;
+        };
+        /** EnhancementOut */
+        EnhancementOut: {
+            /** Source Version Id */
+            source_version_id: string;
+            /** Strength */
+            strength: number;
+            /** Reference Id */
+            reference_id?: string | null;
+            /** Maps From */
+            maps_from?: string | null;
+            /**
+             * Phase
+             * @default 1
+             */
+            phase: number;
+            /** Source Image Url */
+            source_image_url: string;
+        };
         /** ErrorBody */
         ErrorBody: {
             /** Code */
@@ -709,7 +764,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "analyze" | "render" | "generate" | "merge";
+            type: "analyze" | "render" | "generate" | "merge" | "enhance";
             /**
              * Status
              * @enum {string}
@@ -1200,11 +1255,19 @@ export interface components {
                 [key: string]: boolean;
             } | null;
             /** Mode */
-            mode?: ("deterministic" | "ai_appearance") | null;
+            mode?: ("deterministic" | "ai_appearance" | "ai_material") | null;
             /** Look */
             look?: ("v1" | "v2" | "v3") | null;
             /** Size */
             size?: number[] | null;
+            /** Max Change */
+            max_change?: number | null;
+            /** Edge Sharpness */
+            edge_sharpness?: number | null;
+            /** Source Unchanged */
+            source_unchanged?: boolean | null;
+            /** Strength Applied */
+            strength_applied?: number | null;
             /** Ai Used */
             ai_used?: boolean | null;
             /** Ai Reason */
@@ -1250,6 +1313,7 @@ export interface components {
             reference_id?: string | null;
             /** Form */
             form?: ("flat" | "folded") | null;
+            enhancement?: components["schemas"]["EnhancementOut"] | null;
             verify: components["schemas"]["VerifyOut"] | null;
             frame: components["schemas"]["FrameOut"] | null;
             error: components["schemas"]["ErrorBody"] | null;
@@ -2159,6 +2223,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_enhance_api_projects__pid__versions__vid__enhance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnhanceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateOut"];
+                };
             };
             /** @description Default Response */
             default: {

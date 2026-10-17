@@ -9,12 +9,12 @@ from fastapi import APIRouter, Request, Response
 from app.ai import providers
 from app.ai.models import IMAGE_MODEL
 from app.api.deps import idempotent_replay, is_legacy, remember
-from app.api.schemas import GenerateIn, GenerateOut, JobOut, MergeIn
+from app.api.schemas import EnhanceIn, GenerateIn, GenerateOut, JobOut, MergeIn
 from app.config import get_settings
 from app.errors import ApiError
 from app.jobs import runner
 from app.jobs.runner import Cancelled, JobContext
-from app.services import merge, pipeline, specs
+from app.services import enhance, merge, pipeline, specs
 from app.storage import repo
 
 router = APIRouter(tags=["generate"])
@@ -35,7 +35,10 @@ def _check_can_start(project: dict, needs_model: bool = True) -> None:
             "Gemini API 키가 설정되지 않았습니다.",
             hint="backend/.env에 GEMINI_API_KEY를 추가하세요.",
         )
-    if runner.active_count("generate", "merge") >= get_settings().max_concurrent_generations:
+    if (
+        runner.active_count("generate", "merge", "enhance")
+        >= get_settings().max_concurrent_generations
+    ):
         raise ApiError(
             429,
             "TOO_MANY_GENERATIONS",
@@ -216,3 +219,75 @@ def cancel_job(job_id: str) -> Response:
     if job["status"] in ("pending", "running"):
         repo.update("jobs", job_id, cancel_requested=1)
     return Response(status_code=204)
+
+
+def _enhance_source(pid: str, vid: str) -> dict:
+    """A finished deterministic flat render of this project (the only thing we enhance)."""
+    v = repo.get("versions", vid)
+    settings = (v or {}).get("settings_json") or {}
+    if (
+        v is None
+        or v["project_id"] != pid
+        or v["deleted_at"]
+        or v["status"] != "done"
+        or (v.get("kind") or "flat") != "flat"
+        or is_legacy(v)
+        or settings.get("flat_mode") != "deterministic"
+    ):
+        raise ApiError(
+            409,
+            "ENHANCE_SOURCE_INVALID",
+            "AI 보정은 완료된 코드 렌더(②, AI 없음)에만 할 수 있습니다.",
+            hint="② 플랫 렌더를 먼저 만들고 그 버전을 선택해주세요.",
+        )
+    return v
+
+
+@router.post("/projects/{pid}/versions/{vid}/enhance", response_model=GenerateOut, status_code=202)
+def start_enhance(pid: str, vid: str, body: EnhanceIn, request: Request):
+    """Optional AI material enhancement of a finished deterministic render. Makes a new
+    version; the source render is never changed. ``maps_from`` re-applies an earlier
+    enhancement's maps at a new strength without calling the model."""
+    if replay := idempotent_replay(request, f"enhance:{pid}:{vid}"):
+        return replay
+    project = repo.project_or_404(pid)
+    source = _enhance_source(pid, vid)
+    if body.maps_from:
+        prev = repo.get("versions", body.maps_from)
+        prev_settings = (prev or {}).get("settings_json") or {}
+        if (
+            prev is None
+            or prev["project_id"] != pid
+            or prev["status"] != "done"
+            or prev_settings.get("flat_mode") != "ai_material"
+            or prev_settings.get("source_version_id") != vid
+            or not (repo.project_dir(pid) / "versions" / f"{prev['id']}_light.npy").exists()
+        ):
+            raise ApiError(
+                409,
+                "ENHANCE_MAPS_MISSING",
+                "다시 적용할 AI 보정 결과를 찾을 수 없습니다.",
+                hint="같은 원본의 완료된 AI 보정 버전을 선택해주세요.",
+            )
+    if body.reference_id and repo.get("refs", body.reference_id) is None:
+        raise ApiError(404, "REFERENCE_NOT_FOUND", "레퍼런스를 찾을 수 없습니다.")
+    _check_can_start(project, needs_model=not body.maps_from)
+    out = _start(
+        pid,
+        "enhance",
+        enhance.run_enhance,
+        kind="flat",
+        reference_ids=[body.reference_id] if body.reference_id else [],
+        flat_version_id=vid,
+        settings={
+            "flat_mode": "ai_material",
+            "flat_look": source["settings_json"].get("flat_look", "v3"),
+            "source_version_id": vid,
+            "strength": body.strength,
+            "reference_id": body.reference_id,
+            "maps_from": body.maps_from,
+            "phase": enhance.PHASE,
+        },
+    )
+    remember(request, f"enhance:{pid}:{vid}", 202, out.model_dump())
+    return out

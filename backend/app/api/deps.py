@@ -8,7 +8,14 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from app.ai.models import IMAGE_MODEL
-from app.api.schemas import ProjectOut, ReferenceAnalysis, ReferenceOut, SourceOut, VersionOut
+from app.api.schemas import (
+    EnhancementOut,
+    ProjectOut,
+    ReferenceAnalysis,
+    ReferenceOut,
+    SourceOut,
+    VersionOut,
+)
 from app.errors import ErrorBody
 from app.services.merge import REFERENCE_SCHEMA, is_stale
 from app.services.pipeline import PIPELINE
@@ -87,6 +94,7 @@ def version_out(v: dict) -> VersionOut:
     params = v.get("scene_json") or {}
     kind = "merge" if v.get("kind") in ("merge", "scene") else "flat"  # scene: old mockups
     model = IMAGE_MODEL if v["provider"] == IMAGE_MODEL.provider else None
+    settings = v.get("settings_json") or {}
     image = f"/api/projects/{pid}/versions/{vid}/image"
     return VersionOut(
         id=vid,
@@ -96,7 +104,9 @@ def version_out(v: dict) -> VersionOut:
         status=v["status"],
         provider_label=(
             "코드 렌더 (AI 없음)"
-            if (v.get("settings_json") or {}).get("flat_mode") == "deterministic"
+            if settings.get("flat_mode") == "deterministic"
+            else f"{model.label} · AI 재질 보정"
+            if model and settings.get("flat_mode") == "ai_material"
             else model.label
             if model
             else f"{v['provider']} (legacy)"
@@ -105,6 +115,16 @@ def version_out(v: dict) -> VersionOut:
         flat_version_id=v.get("flat_version_id") if kind == "merge" else None,
         reference_id=params.get("reference_id") if kind == "merge" else None,
         form=params.get("form") if kind == "merge" else None,
+        enhancement=EnhancementOut(
+            source_version_id=settings["source_version_id"],
+            strength=settings["strength"],
+            reference_id=settings.get("reference_id"),
+            maps_from=settings.get("maps_from"),
+            phase=settings.get("phase", 1),
+            source_image_url=f"/api/projects/{pid}/versions/{settings['source_version_id']}/image",
+        )
+        if settings.get("flat_mode") == "ai_material"
+        else None,
         verify=v.get("verify_json"),
         frame=v.get("frame_json"),
         error=ErrorBody(**v["error_json"]) if v.get("error_json") else None,

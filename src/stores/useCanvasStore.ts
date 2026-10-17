@@ -12,6 +12,10 @@ type State = {
   /** Flat render picked as the source for the next merge (null: latest usable one). */
   mergeSourceId: string | null
   fullscreen: boolean
+  /** Before/after overlay on an AI-enhanced flat: the original v3 render on the left of `split`. */
+  compare: boolean
+  /** Divider position of the before/after overlay, 0..1 of the image width. */
+  split: number
   /** Last time the user zoomed/panned/switched view — decides whether a finished job takes over the canvas. */
   interactedAt: number
 }
@@ -26,6 +30,8 @@ type Actions = {
   /** Forget a deleted version wherever it was selected. */
   forget: (id: string) => void
   setFullscreen: (on: boolean) => void
+  setCompare: (on: boolean) => void
+  setSplit: (x: number) => void
   touch: () => void
 }
 
@@ -35,6 +41,8 @@ export const useCanvasStore = create<State & Actions>()((set) => ({
   mergeId: null,
   mergeSourceId: null,
   fullscreen: false,
+  compare: true,
+  split: 0.5,
   interactedAt: 0,
   setView: (view) => set({ view, interactedAt: Date.now() }),
   showVersion: (id, kind) => set(kind === 'flat' ? { view: 'flat', flatId: id } : { view: 'merge', mergeId: id }),
@@ -47,5 +55,7 @@ export const useCanvasStore = create<State & Actions>()((set) => ({
       mergeSourceId: s.mergeSourceId === id ? null : s.mergeSourceId,
     })),
   setFullscreen: (fullscreen) => set({ fullscreen }),
+  setCompare: (compare) => set({ compare }),
+  setSplit: (split) => set({ split: Math.min(1, Math.max(0, split)) }),
   touch: () => set({ interactedAt: Date.now() }),
 }))

@@ -472,14 +472,19 @@ def clean_paper(L: Layers, sil: np.ndarray) -> np.ndarray:
 
 
 def broad_light(
-    scene: np.ndarray, det: np.ndarray, clean: np.ndarray, bounds: tuple[float, float]
+    scene: np.ndarray,
+    det: np.ndarray,
+    clean: np.ndarray,
+    bounds: tuple[float, float],
+    min_sigma_px: float = 0.0,
 ) -> np.ndarray:
     """Scene / our render on ``clean`` paper, blurred far beyond glyph size, exposure-neutral
-    and clamped to ``bounds``: only broad light survives (HxW)."""
+    and clamped to ``bounds``: only broad light survives (HxW). ``min_sigma_px`` keeps the
+    blur at least this wide (a physical scale, for small packages)."""
     h, w = clean.shape
     ratio = (scene @ look.LUMA) / np.maximum(det @ look.LUMA, 0.05)
     k = max(1, round(max(h, w) / 512))  # measured on a small copy
-    sigma = AI_LIGHT_SIGMA * max(h, w) / k
+    sigma = max(AI_LIGHT_SIGMA * max(h, w), min_sigma_px) / k
     m = clean[::k, ::k].astype(np.float32)
     num = ndimage.gaussian_filter(ratio[::k, ::k] * m, sigma)
     den = ndimage.gaussian_filter(m, sigma)

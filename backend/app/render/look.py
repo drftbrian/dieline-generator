@@ -225,6 +225,36 @@ FLAT_TEXTURE_MAX = 0.012  # fibre variation on clean paper (std of the gain's fi
 FLAT_CLOUD_MAX = 0.004  # mottling between fibre and light scale (1-10 mm): no cloudy patches
 
 
+def board_texture(
+    g: np.ndarray, solid: np.ndarray, edges: np.ndarray, px_per_mm: float
+) -> tuple[float, float, np.ndarray]:
+    """(fibre texture, cloudiness, clean mask) of the gain on the board away from print edges,
+    folds and the cut edge. Fibres are measured at full size; mottling (1-10 mm, "cloudy
+    patches") on a smaller copy."""
+    print_zone = ndimage.binary_dilation(edges, iterations=max(2, round(px_per_mm)))
+    clean = ndimage.binary_erosion(solid, iterations=max(2, round(1.5 * px_per_mm)))
+    clean &= ~print_zone
+    hp_g = g - ndimage.gaussian_filter(g, max(1.0, 0.5 * px_per_mm))
+    k = max(1, round(px_per_mm / 2))
+    gs, cs = g[::k, ::k], clean[::k, ::k]
+    mm = px_per_mm / k
+    band = ndimage.gaussian_filter(gs, max(1.0, mm)) - ndimage.gaussian_filter(
+        gs, max(2.0, 10 * mm)
+    )
+    cs &= ~ndimage.binary_dilation(np.abs(band) > 0.01, iterations=max(2, round(mm)))  # folds
+    clean &= np.repeat(np.repeat(cs, k, 0), k, 1)[: clean.shape[0], : clean.shape[1]]
+    texture = float(hp_g[clean].std()) if clean.sum() > 100 else 0.0
+    cloud = float(band[cs].std()) if cs.sum() > 100 else 0.0
+    return texture, cloud, clean
+
+
+def print_edges_of(print8: np.ndarray, solid: np.ndarray) -> np.ndarray:
+    """The print's own edges (type, logos, lines) on the board, as ``verify_flat`` sees them."""
+    lum = ndimage.gaussian_filter(print8[..., :3].astype(np.float32) / 255 @ LUMA, 0.7)
+    grad = np.hypot(ndimage.sobel(lum, 0), ndimage.sobel(lum, 1)) / 8
+    return ndimage.binary_dilation(grad > 0.012, iterations=2) & solid
+
+
 def verify_flat(
     final: np.ndarray,
     print8: np.ndarray,
@@ -278,22 +308,7 @@ def verify_flat(
     background_max = float(out_luma.max()) if out_luma.size else bg_luma
     echo_px = int((out_luma > bg_luma + 2 / 255).sum())
 
-    # Texture on the board away from print edges, folds and the cut edge. Fibres are measured
-    # at full size; mottling (1-10 mm, "cloudy patches") on a smaller copy.
-    print_zone = ndimage.binary_dilation(edges, iterations=max(2, round(px_per_mm)))
-    clean = ndimage.binary_erosion(solid, iterations=max(2, round(1.5 * px_per_mm)))
-    clean &= ~print_zone
-    hp_g = g - ndimage.gaussian_filter(g, max(1.0, 0.5 * px_per_mm))
-    k = max(1, round(px_per_mm / 2))
-    gs, cs = g[::k, ::k], clean[::k, ::k]
-    mm = px_per_mm / k
-    band = ndimage.gaussian_filter(gs, max(1.0, mm)) - ndimage.gaussian_filter(
-        gs, max(2.0, 10 * mm)
-    )
-    cs &= ~ndimage.binary_dilation(np.abs(band) > 0.01, iterations=max(2, round(mm)))  # folds
-    clean &= np.repeat(np.repeat(cs, k, 0), k, 1)[: clean.shape[0], : clean.shape[1]]
-    texture = float(hp_g[clean].std()) if clean.sum() > 100 else 0.0
-    cloud = float(band[cs].std()) if cs.sum() > 100 else 0.0
+    texture, cloud, clean = board_texture(g, solid, edges, px_per_mm)
     # Achromatic: the gain is one value per pixel, so unprinted paper stays neutral.
     paper = clean & (ink < 0.02)
     chroma = (
@@ -317,11 +332,13 @@ def verify_flat(
         worst = max(worst, float(delta_e(np.median(f[region], axis=0), np.asarray(target))))
     colour_ok = overall <= 3 and worst <= 6
 
+    # Print detail: compared where the print has edges (type, logos, lines). A plain or very
+    # dark print has none there; its paper texture is mostly 8-bit rounding, not print detail.
     hp = lambda v: v - ndimage.gaussian_filter(v, 2)  # noqa: E731
-    inner = ndimage.binary_erosion(solid, iterations=6)
-    inner = inner if inner.sum() > 100 else solid
+    inner = ndimage.binary_erosion(solid, iterations=6) & edges
     hf, he = hp(f @ LUMA)[inner], hp(expected @ LUMA)[inner]
-    corr = float(np.corrcoef(hf, he)[0, 1]) if hf.std() > 1e-6 and he.std() > 1e-6 else 1.0
+    measurable = inner.sum() > 100 and hf.std() > 1e-6 and he.std() > 1e-6
+    corr = float(np.corrcoef(hf, he)[0, 1]) if measurable else 1.0
     changed = int(
         (np.abs(final[..., :3].astype(int) - print8[..., :3].astype(int)).max(-1) > 0)[solid].sum()
     )

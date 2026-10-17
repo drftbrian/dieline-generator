@@ -101,6 +101,11 @@ function HistoryCard({
   onDelete: () => void
 }) {
   const verifyFailed = v.status === 'done' && v.verify && !v.verify.match
+  const badge = v.enhancement
+    ? { text: t.enhanced, tone: 'bg-violet-50 text-violet-700' }
+    : v.kind === 'flat'
+      ? { text: t.flat, tone: 'bg-canvas text-ink-muted' }
+      : { text: t.merge, tone: 'bg-accent/10 text-accent' }
   const title = [`v${v.number}`, formatDateTime(v.created_at), v.provider_label, v.error?.message].filter(Boolean).join(' · ')
   return (
     <div className="group relative shrink-0">
@@ -108,7 +113,7 @@ function HistoryCard({
         type="button"
         onClick={onOpen}
         title={v.legacy ? `${title}\n${t.legacyTitle}` : title}
-        aria-label={`v${v.number} ${v.kind === 'flat' ? t.flat : t.merge}`}
+        aria-label={`v${v.number} ${badge.text}`}
         className={cn(
           'flex h-[84px] w-24 flex-col overflow-hidden rounded-md border bg-surface text-left',
           'focus-visible:outline-2 focus-visible:outline-accent',
@@ -126,9 +131,7 @@ function HistoryCard({
         )}
         <span className="flex flex-wrap items-center gap-1 px-1.5 py-0.5 text-[11px] font-medium">
           v{v.number}
-          <span className={cn('rounded px-1 font-normal', v.kind === 'flat' ? 'bg-canvas text-ink-muted' : 'bg-accent/10 text-accent')}>
-            {v.kind === 'flat' ? t.flat : t.merge}
-          </span>
+          <span className={cn('rounded px-1 font-normal', badge.tone)}>{badge.text}</span>
           {v.legacy && <span className="rounded bg-amber-50 px-1 font-normal text-amber-700">{t.legacy}</span>}
           {v.status === 'running' && <span className="font-normal text-ink-muted">{t.running}</span>}
           {v.status === 'failed' && <span className="font-normal text-amber-700">{t.failed}</span>}

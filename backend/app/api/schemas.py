@@ -99,7 +99,7 @@ class JobStage(BaseModel):
 class JobOut(BaseModel):
     id: str
     project_id: str
-    type: Literal["analyze", "render", "generate", "merge"]
+    type: Literal["analyze", "render", "generate", "merge", "enhance"]
     status: Literal["pending", "running", "done", "failed", "cancelled"]
     progress: float
     stages: list[JobStage]
@@ -211,6 +211,25 @@ class MergeIn(BaseModel):
     form: MergeForm = "auto"  # auto = the form Claude read in the reference (none -> folded)
 
 
+class EnhanceIn(BaseModel):
+    """Post-render AI material enhancement of a finished deterministic flat render."""
+
+    strength: float = Field(0.6, ge=0, le=1)  # how much of the AI appearance is applied
+    reference_id: str | None = None  # material/light photo; default: the bundled look photo
+    # Re-apply the maps of an earlier enhancement of the same source at a new strength
+    # (no image model call, no cost).
+    maps_from: str | None = None
+
+
+class EnhancementOut(BaseModel):
+    source_version_id: str
+    strength: float
+    reference_id: str | None = None  # None: the bundled look photo
+    maps_from: str | None = None
+    phase: int = 1
+    source_image_url: str
+
+
 class GenerateOut(BaseModel):
     job_id: str
     version_id: str
@@ -233,10 +252,14 @@ class VerifyOut(BaseModel):
     colour_delta_e_max: float | None = None  # worst Figma colour (CIE76, <=6)
     # Step 2 flat render (look.verify_flat): each gate, and what was measured.
     checks: dict[str, bool] | None = None
-    mode: Literal["deterministic", "ai_appearance"] | None = None
-    # Board look, overriding FLAT_LOOK: "v3" (default), or "v2" / "v1" to compare.
-    look: Literal["v1", "v2", "v3"] | None = None
+    mode: Literal["deterministic", "ai_appearance", "ai_material"] | None = None
+    look: Literal["v1", "v2", "v3"] | None = None  # the board look rendered
     size: list[int] | None = None  # [w, h] px
+    max_change: float | None = None  # ai_material: largest brightness change vs the source
+    edge_sharpness: float | None = None  # ai_material: print edge energy vs the source (>=0.97)
+    source_unchanged: bool | None = None  # ai_material: the source file is byte-identical
+    # ai_material: the strength actually applied (lowered evenly if brand colours would drift)
+    strength_applied: float | None = None
     ai_used: bool | None = None  # the image model's light map reached the board
     ai_reason: str | None = None  # why it did not
     ai_iou: float | None = None  # the model's board against ours
@@ -260,6 +283,8 @@ class VersionOut(BaseModel):
     flat_version_id: str | None = None  # merge: the flat render it was made from
     reference_id: str | None = None  # merge: the reference photo
     form: Literal["flat", "folded"] | None = None  # merge: the form used
+    # A post-render AI material enhancement of a deterministic flat render (else None).
+    enhancement: EnhancementOut | None = None
     verify: VerifyOut | None
     frame: FrameOut | None
     error: ErrorBody | None
