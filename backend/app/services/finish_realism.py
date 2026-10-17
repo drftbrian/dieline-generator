@@ -31,6 +31,7 @@ from app.finishing import catalog, compose
 from app.finishing import spec as fspec
 from app.jobs.runner import JobContext
 from app.render import shading
+from app.render.finishing import material
 from app.services import pipeline, specs
 from app.services.enhance import sha
 from app.storage import repo
@@ -123,6 +124,23 @@ def luminance_gain(ours: np.ndarray, theirs: np.ndarray, px_per_mm: float) -> np
     lo = ndimage.gaussian_filter(_lum(ours), s)
     li = ndimage.gaussian_filter(_lum(theirs), s)
     return li / np.maximum(lo, 0.03)
+
+
+NOT_WORSE = 0.03  # luminance: how much further from the photos the AI may land
+
+
+def photo_distance(f: catalog.Finish, rgb: np.ndarray, inside: np.ndarray) -> float | None:
+    """How far a metal foil's tones (5th / 50th / 98th percentile luminance) are from those
+    measured on real photos of that foil (None for finishes without measured tones)."""
+    if f.model != "metal" or not inside.any():
+        return None
+    cal = material.calibration()["gold" if f.id == "foil.gold" else "silver"]
+    if float(_lum(material._rgb(f.color))) < 0.35:
+        return None  # dark / coloured metals: the photo levels are for bright metals
+    lum = _lum(rgb)[inside]
+    got = np.percentile(lum, [5, 50, 98])
+    want = np.array([cal["shadow"], cal["body"], cal["highlight"]])
+    return round(float(np.abs(got - want).mean()), 4)
 
 
 def areas(c: compose.Composed) -> list[tuple[catalog.Finish, dict, np.ndarray]]:
@@ -227,10 +245,17 @@ def run_finish(ctx: JobContext, vid: str) -> dict:
                 g = 1 + (np.clip(gain, *GAIN_RANGE) - 1) * strength
                 k = mm[..., None]
                 new = np.clip(ours * (1 + k * (g[..., None] - 1)), 0, 1)
-                region = final[gy0 : gy0 + hh, gx0 : gx0 + ww]
-                region[mm > 0] = shading.to8(new)[mm > 0]
-                np.save(vdir / f"{vid}_area{i}_gain.npy", g.astype(np.float32))
-                entry["used"] = True
+                # Adopted only if it is not measurably further from real photos of this
+                # finish than our own render (metals: tone percentiles from calibration).
+                before, after = photo_distance(f, ours, inside), photo_distance(f, new, inside)
+                entry["photo_distance"] = [before, after]
+                if before is not None and after is not None and after > before + NOT_WORSE:
+                    entry["used"], entry["reason"] = False, "not_better"
+                else:
+                    region = final[gy0 : gy0 + hh, gx0 : gx0 + ww]
+                    region[mm > 0] = shading.to8(new)[mm > 0]
+                    np.save(vdir / f"{vid}_area{i}_gain.npy", g.astype(np.float32))
+                    entry["used"] = True
             report.append(entry)
             ctx.check_cancel()
         ctx.stage("model", "done", {"areas": report})

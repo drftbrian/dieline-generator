@@ -146,3 +146,27 @@ def test_reference_photos_match_hangul_names(tmp_path, monkeypatch):
     got = finish_realism.reference_photos("foil.gold")
     assert [n for n, _ in got] == ["후가공_금박.jpg"]
     assert finish_realism.reference_photos("surface.matte_lamination") == []
+
+
+class Washed(FakeProvider):
+    """Same shapes, but flattened tones (a dull, washed-out foil): further from real photos."""
+
+    def generate(self, req, model_id):
+        self.requests.append(req)
+        img = np.asarray(req.images[0][1].convert("RGB")).astype(np.float32)
+        return GenerationResult(Image.fromarray((0.55 * img + 0.45 * 190).astype(np.uint8)))
+
+
+def test_ai_that_is_not_closer_to_real_photos_is_not_adopted(client, project, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(providers, "PROVIDER", Washed())
+    pid = project
+    vid, _, _ = _ready(client, pid)
+    job, v = _finish(client, pid, vid, ai=True, strength=1.0)
+    assert job["status"] == "done"
+    manifest = json.loads(
+        (repo.project_dir(pid) / "versions" / f"{v['id']}_finishing.json").read_text()
+    )
+    area = manifest["areas"][0]
+    assert area["used"] is False and area["reason"] == "not_better", area
+    before, after = area["photo_distance"]
+    assert after > before
