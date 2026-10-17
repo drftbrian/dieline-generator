@@ -105,6 +105,8 @@ def paper_gain(L: Layers, look: Look = FLAT_LOOK) -> np.ndarray:
     Everything is multiplicative and the same on R, G and B, so it can only lighten or darken
     the print a little; it never blurs, moves or tints it.
     """
+    if look.style == "v3":
+        return finishing_gain(L, look)
     if look.style == "v2":
         return physical_gain(L, look)
     m, li = look.material, look.lighting
@@ -232,6 +234,98 @@ def physical_gain(L: Layers, look: Look) -> np.ndarray:
     return gain.astype(np.float32)
 
 
+# ---- v3: finishing pass ----------------------------------------------------------------
+# v2 plus: a hair more fibre and a whisper of tonal variation, a warm-grey board edge in the
+# cut's own anti-aliased pixels, a tight contact shadow that shows on the near-black ground,
+# slightly deeper fold scores and a minimal light difference between panels (board planes).
+
+V3_FIBRE = 1.15  # fibre strength relative to v2
+TONE_STD = 0.0012  # tonal variation of the board (2-4 mm), far below "cloudy" (verify: 0.004)
+EDGE_TONE = "#4A453F"  # the cut face in shade: a dark warm grey, seen only in the edge pixel
+V3_SCORE = 1.25  # fold score depth relative to v2
+PLANE_STD = 0.005  # light difference between panels (board planes), +-0.5%
+SHADOW_MM = 0.6  # contact shadow reach outside the cut
+
+
+def tonal_variation(L: Layers) -> np.ndarray:
+    """Zero-mean, very low tonal variation at 2-4 mm: board is never perfectly even, but this
+    stays far below any visible mottling."""
+    px = L.px_per_mm
+    rng = np.random.default_rng(31)
+    small = max(1, round(px))  # build at 1 px per mm, then smooth up
+    h, w = -(-L.height // small), -(-L.width // small)
+    v = ndimage.gaussian_filter(rng.standard_normal((h, w), np.float32), 1.5)
+    v -= ndimage.gaussian_filter(v, 6)  # nothing broader than ~6 mm
+    v = v / max(float(v.std()), 1e-6) * TONE_STD
+    up = ndimage.zoom(v, small, order=1)[: L.height, : L.width]
+    return np.pad(up, ((0, L.height - up.shape[0]), (0, L.width - up.shape[1])), mode="edge")
+
+
+def exterior_ground(L: Layers) -> np.ndarray:
+    """Ground outside the outer cut (not the openings inside the sheet)."""
+    ground = L.silhouette < 0.5
+    labels, _ = ndimage.label(ground)
+    border = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    return np.isin(labels, border[border > 0])
+
+
+def panel_planes(L: Layers) -> np.ndarray:
+    """A minimal brightness difference per panel (HxW, zero-mean), changing at the folds, as
+    real board panels never lie exactly in one plane under an overhead light."""
+    px = L.px_per_mm
+    board = L.silhouette >= 0.5
+    folds = ndimage.binary_dilation(L.crease > 0.3, iterations=max(1, round(0.3 * px)))
+    labels, n = ndimage.label(board & ~folds)
+    if n < 2:
+        return np.zeros((L.height, L.width), np.float32)
+    # Order panels by position so the result does not depend on labelling order.
+    centres = ndimage.center_of_mass(board, labels, range(1, n + 1))
+    order = np.lexsort(([c[1] for c in centres], [round(c[0] / (10 * px)) for c in centres]))
+    rng = np.random.default_rng(41)
+    values = np.zeros(n + 1, np.float32)
+    values[1 + order] = rng.uniform(-1, 1, n).astype(np.float32) * PLANE_STD * 1.7
+    # Every pixel (folds too) takes its nearest panel's value, softened across the fold.
+    _, (iy, ix) = ndimage.distance_transform_edt(labels == 0, return_indices=True)
+    plane = values[labels[iy, ix]]
+    plane = ndimage.gaussian_filter(plane, max(1.0, 0.4 * px))
+    return (plane - float(np.mean(plane[board]))) * board
+
+
+def finishing_gain(L: Layers, look: Look) -> np.ndarray:
+    m, li = look.material, look.lighting
+    light = light_dir(li.light_angle)
+    gain = np.full((L.height, L.width), EXPOSURE, np.float32)
+    if m.texture > 0:
+        tex = V3_FIBRE * fibre_texture(L, m) + tonal_variation(L)
+        gain *= 1 + tex * (1 - INK_DAMP * print_edge_zone(L, m))
+    if m.crease_depth > 0:
+        gain *= 1 + V3_SCORE * score_relief(L, m, light)
+    gain *= 1 + edge_rim(L, m, light)
+    gain *= 1 + panel_planes(L)
+    gain *= softbox(L)
+    return gain.astype(np.float32)
+
+
+def finishing_ground(L: Layers, look: Look) -> tuple[np.ndarray, np.ndarray]:
+    """(ground HxWx3, shadow HxW): the near-black ground with a tight contact shadow down to
+    true black at the cut, and the warm-grey board edge in the cut's anti-aliased pixels.
+    Coverage (the cut geometry) is unchanged: only what shows *through* edge pixels changes."""
+    px = L.px_per_mm
+    sil = L.silhouette
+    reach = max(1.0, SHADOW_MM * px)
+    near = ndimage.gaussian_filter(
+        ndimage.binary_dilation(sil > 0.5, iterations=max(1, round(0.25 * reach))).astype(
+            np.float32
+        ),
+        reach / 2,
+    )
+    shadow = np.clip(near * look.lighting.shadow_strength / 100 * 2, 0, 1) * (1 - sil)
+    ground = hex_rgb(look.lighting.background_color)[None, None, :] * (1 - shadow[..., None])
+    edge = (sil > 0.001) & (sil < 0.999) & ndimage.binary_dilation(exterior_ground(L))
+    ground = np.where(edge[..., None], hex_rgb(EDGE_TONE)[None, None, :], ground)
+    return ground.astype(np.float32), shadow.astype(np.float32)
+
+
 def contact_shadow(L: Layers, look: Look = FLAT_LOOK) -> np.ndarray:
     """A narrow shadow just outside the cut, from the exact silhouette (never from a model)."""
     m, li = look.material, look.lighting
@@ -249,10 +343,13 @@ def render_parts(L: Layers, look: Look = FLAT_LOOK) -> Parts:
     print_rgb = print_surface(L, look.material)
     gain = paper_gain(L, look)
     board = np.clip(print_rgb * gain[..., None], 0, 1)
-    shadow = contact_shadow(L, look)
-    background = np.broadcast_to(
-        hex_rgb(look.lighting.background_color) * (1 - shadow[..., None]), print_rgb.shape
-    ).astype(np.float32)
+    if look.style == "v3":
+        background, shadow = finishing_ground(L, look)
+    else:
+        shadow = contact_shadow(L, look)
+        background = np.broadcast_to(
+            hex_rgb(look.lighting.background_color) * (1 - shadow[..., None]), print_rgb.shape
+        ).astype(np.float32)
     rgb = background * (1 - sil[..., None]) + board * sil[..., None]
     return Parts(rgb.astype(np.float32), sil, gain, print_rgb, shadow, background)
 

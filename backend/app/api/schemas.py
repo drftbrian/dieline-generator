@@ -198,8 +198,8 @@ class GenerateIn(BaseModel):
     "deterministic" (no image model) or "ai_appearance" (the model may add gentle light)."""
 
     mode: Literal["deterministic", "ai_appearance"] | None = None
-    # Board look, overriding FLAT_LOOK: "v2" physical board or "v1" (first look, to compare).
-    look: Literal["v1", "v2"] | None = None
+    # Board look, overriding FLAT_LOOK: "v3" (default), or "v2" / "v1" to compare.
+    look: Literal["v1", "v2", "v3"] | None = None
 
 
 MergeForm = Literal["auto", "flat", "folded"]
@@ -234,8 +234,8 @@ class VerifyOut(BaseModel):
     # Step 2 flat render (look.verify_flat): each gate, and what was measured.
     checks: dict[str, bool] | None = None
     mode: Literal["deterministic", "ai_appearance"] | None = None
-    # Board look, overriding FLAT_LOOK: "v2" physical board or "v1" (first look, to compare).
-    look: Literal["v1", "v2"] | None = None
+    # Board look, overriding FLAT_LOOK: "v3" (default), or "v2" / "v1" to compare.
+    look: Literal["v1", "v2", "v3"] | None = None
     size: list[int] | None = None  # [w, h] px
     ai_used: bool | None = None  # the image model's light map reached the board
     ai_reason: str | None = None  # why it did not

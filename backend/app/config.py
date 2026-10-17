@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     # light map only). The flat render is rasterized from the vectors at this long edge.
     flat_render_mode: Literal["deterministic", "ai_appearance"] = "deterministic"
     flat_long_edge: int = Field(4096, ge=1024, le=8192)
-    # Board look of step 2: "v2" physical board (default) or "v1" (first look, for comparison).
-    flat_look: Literal["v1", "v2"] = "v2"
+    # Board look of step 2: "v3" finishing pass (default); "v2", "v1" kept for comparison.
+    flat_look: Literal["v1", "v2", "v3"] = "v3"
 
     @field_validator("anthropic_api_key", "gemini_api_key", "figma_token", mode="before")
     @classmethod

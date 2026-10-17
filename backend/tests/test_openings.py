@@ -4,7 +4,8 @@ import numpy as np
 
 from app.pdf.geometry import Raster
 from app.render.layers import Layers, board
-from app.render.shading import render
+from app.render.shading import hex_rgb, render
+from app.spec.models import FLAT_LOOK
 
 
 def square(x0, y0, x1, y1):
@@ -36,6 +37,7 @@ def test_an_inner_cut_loop_renders_black():
     art = np.zeros((h, w, 4), np.float32)
     L = Layers(w, h, 2.0, (0.0, 0.0), art, sil, np.zeros((h, w), np.float32))
     img, alpha = render(L)
-    assert img[100, 100, :3].max() == 0  # the window shows the black background
+    ground = round(float(hex_rgb(FLAT_LOOK.lighting.background_color).max()) * 255)
+    assert img[100, 100, :3].max() <= ground <= 5  # the window shows the (near-)black ground
     assert img[40, 40, :3].min() > 200  # white board
     assert alpha[100, 100] == 0

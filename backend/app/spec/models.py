@@ -158,14 +158,16 @@ class Lighting(BaseModel):
     margin: int = Field(12, ge=0, le=40)  # % of package size
 
 
-LookStyle = Literal["v1", "v2"]
+LookStyle = Literal["v1", "v2", "v3"]
 
 
 class Look(BaseModel):
     """The fixed look of the flat render (step 2). Not user-editable.
 
-    ``style`` picks the board model: "v2" (physical: paper fibres, cut-edge thickness, soft
-    fold scores, overhead light) or "v1" (the first deterministic look, kept for comparison).
+    ``style`` picks the board model: "v3" (v2 + finishing: edge tone, contact shadow on a
+    near-black ground, deeper scores, panel planes), "v2" (physical: paper fibres, cut-edge
+    thickness, soft fold scores, overhead light) or "v1" (the first deterministic look).
+    v1 and v2 are kept unchanged for comparison.
     """
 
     material: Material = Material()
@@ -174,9 +176,12 @@ class Look(BaseModel):
 
 
 # Matte white board on solid black, top-down, soft even light (see prompts/flat_look.png).
-FLAT_LOOK = Look()
 FLAT_LOOK_V1 = Look(style="v1")
-FLAT_LOOKS: dict[str, Look] = {"v1": FLAT_LOOK_V1, "v2": FLAT_LOOK}
+FLAT_LOOK_V2 = Look(style="v2")
+# v3: the ground is near-black (#040404, reads as black) so the contact shadow, down to true
+# black at the cut, can actually be seen.
+FLAT_LOOK = Look(style="v3", lighting=Lighting(background_color="#040404", shadow_strength=60))
+FLAT_LOOKS: dict[str, Look] = {"v1": FLAT_LOOK_V1, "v2": FLAT_LOOK_V2, "v3": FLAT_LOOK}
 
 
 class Specification(BaseModel):

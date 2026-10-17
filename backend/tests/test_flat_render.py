@@ -39,17 +39,23 @@ def flat(client):
     return pid, v
 
 
-def test_one_outline_on_pure_black(flat):
+def test_one_outline_on_a_black_ground(flat):
+    from app.spec.models import FLAT_LOOK
+
     pid, v = flat
     img = _image(pid, v["id"]).astype(int)
-    # The board is light; everything that is not board is exactly the black background.
-    board = ndimage.binary_fill_holes(img.max(-1) > 0)
+    ground = int(round(shading.hex_rgb(FLAT_LOOK.lighting.background_color).max() * 255))
+    assert ground <= 5  # reads as black
+    # The board is light; everything that is not board is the ground or its shadow.
+    board = ndimage.binary_fill_holes(img.max(-1) > ground + 10)
     labels, n = ndimage.label(board)
     sizes = np.bincount(labels.ravel())[1:]
     assert (sizes > 0.01 * board.sum()).sum() == 1  # exactly one package, no echo or copy
-    ring = ndimage.binary_dilation(board, iterations=6) & ~board
-    assert img[ring].max() == 0  # no glow, grey cast or invented edge around it
-    assert v["verify"]["outside_echo_px"] == 0 and v["verify"]["background_max"] == 0
+    ring = ndimage.binary_dilation(board, iterations=6) & ~ndimage.binary_dilation(
+        board, iterations=2
+    )
+    assert img[ring].max() <= ground  # no glow, grey cast or invented edge around it
+    assert v["verify"]["outside_echo_px"] == 0
 
 
 def test_print_is_registered_sharp_and_haloless(flat):
@@ -184,7 +190,7 @@ def _looks(edge=1024):
     from app.spec.models import FLAT_LOOK_V1, FLAT_LOOKS
 
     L = _layers_margin(edge, FLAT_LOOK_V1.lighting.margin)
-    return L, {k: shading.render_parts(L, FLAT_LOOKS[k]) for k in ("v1", "v2")}
+    return L, {k: shading.render_parts(L, FLAT_LOOKS[k]) for k in ("v1", "v2", "v3")}
 
 
 def _layers_margin(edge, margin):
@@ -195,9 +201,16 @@ def _layers_margin(edge, margin):
     return build_layers(src, build_spec(ex, detect(ex)), edge, margin)
 
 
-def test_v1_look_is_kept_unchanged():
-    _, parts = _looks()
-    assert hashlib.sha256(shading.to8(parts["v1"].rgb).tobytes()).hexdigest() == V1_SHA
+V2_SHA = "36ed2520a720082167c69355792cdc8c93cfdd46eaa03af55d2df1896d361b57"
+
+
+def test_v1_and_v2_looks_are_kept_unchanged():
+    from app.spec.models import FLAT_LOOKS
+
+    L = _layers_margin(1024, 12)
+    for key, sha in (("v1", V1_SHA), ("v2", V2_SHA)):
+        rgb = shading.render_parts(L, FLAT_LOOKS[key]).rgb
+        assert hashlib.sha256(shading.to8(rgb).tobytes()).hexdigest() == sha, key
 
 
 def test_v2_changes_brightness_only_and_keeps_geometry():
@@ -270,6 +283,74 @@ def test_look_can_be_chosen_per_render(client):
     pid, _ = upload(client, "named_spot")
     job, v1 = _flat(client, pid, look="v1")
     assert job["status"] == "done" and v1["verify"]["look"] == "v1"
-    job, v2 = _flat(client, pid)
+    job, v2 = _flat(client, pid, look="v2")
     assert job["status"] == "done" and v2["verify"]["look"] == "v2", v2["verify"]
     assert v2["verify"]["match"] is True
+    job, v3 = _flat(client, pid)
+    assert job["status"] == "done" and v3["verify"]["look"] == "v3", v3["verify"]
+    assert v3["verify"]["match"] is True
+
+
+# ---- v3: finishing pass -------------------------------------------------------------------
+
+
+def test_v3_print_and_geometry_are_v2s():
+    L, parts = _looks(1400)
+    a, b = parts["v2"], parts["v3"]
+    assert np.array_equal(a.sil, b.sil) and np.array_equal(a.print_rgb, b.print_rgb)
+    solid = b.sil >= 0.999
+    inked = solid & (L.artwork[..., 3] > 0.5) & (a.rgb.min(-1) > 0.08)
+    inked &= (a.rgb.max(-1) < 0.95) & (b.rgb.max(-1) < 0.95)
+    ratio = b.rgb / np.maximum(a.rgb, 1e-3)
+    assert (ratio.max(-1) - ratio.min(-1))[inked].max() < 1e-3  # brightness only
+    assert np.abs(b.gain[solid] / a.gain[solid] - 1).max() < 0.06  # a finishing pass
+
+
+def test_v3_contact_shadow_shows_and_stays_tight():
+    from app.spec.models import FLAT_LOOK
+
+    L, parts = _looks(1400)
+    p = parts["v3"]
+    ground = shading.hex_rgb(FLAT_LOOK.lighting.background_color).max()
+    d = ndimage.distance_transform_edt(p.sil < 0.001)
+    outside = p.sil < 0.001
+    lum = p.rgb.max(-1)
+    near = outside & (d <= 0.2 * L.px_per_mm)
+    far = outside & (d > 3 * L.px_per_mm)
+    assert lum[near].mean() < 0.5 * ground  # visibly darker right at the cut
+    assert np.allclose(lum[far], ground, atol=1e-6)  # gone within ~3 mm: no drop shadow
+    assert lum[outside].max() <= ground + 1e-6  # never lighter than the ground
+
+
+def test_v3_edge_tone_is_only_the_cut_pixel_of_the_outer_edge():
+    L, parts = _looks(1400)
+    p = parts["v3"]
+    tone = shading.hex_rgb(shading.EDGE_TONE)
+    marked = np.all(np.isclose(p.background, tone, atol=1e-6), axis=-1)
+    assert marked.any()
+    assert np.all((p.sil[marked] > 0.001) & (p.sil[marked] < 0.999))  # edge pixels only
+    assert marked.sum() < 0.02 * (p.sil > 0.5).sum()  # thin
+    holes = (p.sil < 0.5) & ~shading.exterior_ground(L)
+    if holes.any():  # openings inside the sheet keep a black edge
+        assert not (marked & ndimage.binary_dilation(holes, iterations=2)).any()
+
+
+def test_v3_panels_differ_a_little_and_fade_at_folds():
+    L = _layers_margin(1400, 12)
+    plane = shading.panel_planes(L)
+    board = L.silhouette >= 0.5
+    assert np.abs(plane).max() < 0.012  # about +-0.5%, never a visible step
+    assert plane[board].std() > 0.001  # but there is a difference
+    # Smooth on the board (it is only applied there): no jump between neighbouring pixels.
+    inner = ndimage.binary_erosion(board, iterations=2)
+    step = np.abs(np.diff(plane, axis=1))[inner[:, 1:] & inner[:, :-1]]
+    assert step.max() < 0.002
+
+
+def test_v3_scores_are_deeper_but_still_delicate():
+    from app.spec.models import FLAT_LOOK
+
+    L = _layers_margin(1400, 12)
+    v2 = shading.score_relief(L, FLAT_LOOK.material, shading.light_dir(315))
+    v3 = shading.V3_SCORE * v2
+    assert v3.min() < v2.min() and v3.min() > -0.12  # deeper, never a dark seam

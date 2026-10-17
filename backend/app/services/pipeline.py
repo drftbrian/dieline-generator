@@ -583,7 +583,7 @@ def run_generate(
         parts.sil,
         gain,
         layers.artwork[..., 3],
-        background=shading.hex_rgb(FLAT_LOOK.lighting.background_color),
+        background=shading.hex_rgb(flat_look.lighting.background_color),
         colour_regions=figma_colour_regions(pid, layers, print8),
         px_per_mm=layers.px_per_mm,
     )
