@@ -8,4 +8,8 @@ export const keys = {
   history: (id: string) => ['history', id] as const,
   job: (id: string) => ['job', id] as const,
   assets: (id: string) => ['assets', id] as const,
+  finishingCatalog: ['finishing-catalog'] as const,
+  finishing: (id: string) => ['finishing', id] as const,
+  finishingPreview: (id: string, versionId: string, revision: number) =>
+    ['finishing-preview', id, versionId, revision] as const,
 }

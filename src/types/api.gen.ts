@@ -586,6 +586,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/finishing/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Catalog */
+        get: operations["get_catalog_api_finishing_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Finishing */
+        get: operations["get_finishing_api_projects__pid__finishing_get"];
+        /**
+         * Save Finishing
+         * @description Save the whole specification as a new revision (the client keeps undo/redo history).
+         */
+        put: operations["save_finishing_api_projects__pid__finishing_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing/revisions/{revision}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Finishing Revision */
+        get: operations["get_finishing_revision_api_projects__pid__finishing_revisions__revision__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finishing Preview
+         * @description The flat version's look at preview resolution with the finishing revision applied
+         *     (placeholder effects in this milestone). Headers give the frame in page pt.
+         */
+        get: operations["finishing_preview_api_projects__pid__finishing_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -677,6 +753,36 @@ export interface components {
             /** Assets */
             assets: components["schemas"]["AssetOut"][];
         };
+        /** Assignment */
+        Assignment: {
+            /** Id */
+            id?: string;
+            /** Finish */
+            finish: string;
+            /** Targets */
+            targets: components["schemas"]["Target"][];
+            /**
+             * Params
+             * @default {}
+             */
+            params: {
+                [key: string]: number;
+            };
+            /**
+             * Order
+             * @default 0
+             */
+            order: number;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
         /** Body_upload_reference_api_projects__pid__references_post */
         Body_upload_reference_api_projects__pid__references_post: {
             /** File */
@@ -713,6 +819,22 @@ export interface components {
             depth_mm: number;
             /** Height Mm */
             height_mm: number;
+        };
+        /** CatalogOut */
+        CatalogOut: {
+            /** Categories */
+            categories: components["schemas"]["CategoryOut"][];
+            /** Finishes */
+            finishes: components["schemas"]["FinishOut"][];
+        };
+        /** CategoryOut */
+        CategoryOut: {
+            /** Id */
+            id: string;
+            /** Label Ko */
+            label_ko: string;
+            /** Label En */
+            label_en: string;
         };
         /** Counts */
         Counts: {
@@ -941,6 +1063,56 @@ export interface components {
             /** Configured */
             configured: boolean;
         };
+        /** FinishOut */
+        FinishOut: {
+            /** Id */
+            id: string;
+            /** Category */
+            category: string;
+            /** Label Ko */
+            label_ko: string;
+            /** Label En */
+            label_en: string;
+            /** Model */
+            model: string;
+            /** Scope */
+            scope: string;
+            /** Color */
+            color: string | null;
+            /** Available */
+            available: boolean;
+            /** Note */
+            note: string;
+            /** Params */
+            params: components["schemas"]["ParamOut"][];
+        };
+        /** FinishingSaveIn */
+        FinishingSaveIn: {
+            /** Base Revision */
+            base_revision: number;
+            /** Assignments */
+            assignments: components["schemas"]["Assignment"][];
+        };
+        /** FinishingSpec */
+        FinishingSpec: {
+            /**
+             * Schema
+             * @default 1
+             */
+            schema: number;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
+            /**
+             * Assignments
+             * @default []
+             */
+            assignments: components["schemas"]["Assignment"][];
+            /** Updated At */
+            updated_at?: string | null;
+        };
         /**
          * GenerateIn
          * @description Step 2. The look is fixed; ``mode`` overrides the server's FLAT_RENDER_MODE:
@@ -1124,6 +1296,25 @@ export interface components {
             id: string;
             /** Name */
             name: string;
+        };
+        /** ParamOut */
+        ParamOut: {
+            /** Id */
+            id: string;
+            /** Label Ko */
+            label_ko: string;
+            /** Label En */
+            label_en: string;
+            /** Min */
+            min: number;
+            /** Max */
+            max: number;
+            /** Default */
+            default: number;
+            /** Unit */
+            unit: string;
+            /** Note */
+            note: string;
         };
         /** PathUpdate */
         PathUpdate: {
@@ -1450,6 +1641,21 @@ export interface components {
             source_ref: string;
             /** Subpath */
             subpath?: number | null;
+        };
+        /** Target */
+        Target: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "asset" | "panel" | "sheet";
+            /** Id */
+            id?: string | null;
+            /** Range */
+            range?: [
+                number,
+                number
+            ] | null;
         };
         /** UploadOut */
         UploadOut: {
@@ -2819,6 +3025,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HitOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_catalog_api_finishing_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_finishing_api_projects__pid__finishing_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishingSpec"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    save_finishing_api_projects__pid__finishing_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishingSaveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishingSpec"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_finishing_revision_api_projects__pid__finishing_revisions__revision__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                revision: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinishingSpec"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    finishing_preview_api_projects__pid__finishing_preview_get: {
+        parameters: {
+            query: {
+                version_id: string;
+                revision?: number | null;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Default Response */

@@ -4,6 +4,7 @@ import { useSpecification } from '@/api/spec'
 import { ErrorNotice } from '@/components/ui/ErrorNotice'
 import { Spinner } from '@/components/ui/Spinner'
 import { MockupCanvas } from '@/features/canvas/MockupCanvas'
+import { FinishingSync } from '@/features/finishing/FinishingSync'
 import { FlatPanel } from '@/features/flat/FlatPanel'
 import { GenerationHistory } from '@/features/history/GenerationHistory'
 import { SourceInspector } from '@/features/inspector/SourceInspector'
@@ -43,6 +44,7 @@ export function StudioPage() {
   return (
     <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] overflow-hidden bg-canvas">
       <StudioTopBar {...props} />
+      <FinishingSync key={project.data.id} projectId={project.data.id} />
       <div className="flex min-h-0">
         <SourceInspector {...props} />
         <main className="relative min-w-0 flex-1">

@@ -15,6 +15,21 @@ export type PickGeometry = {
   maskRect: { x: number; y: number; w: number; h: number }
 }
 
+type PageFrame = { origin: readonly number[]; size: readonly number[] }
+
+/** Where an image covering `inner` (page pt) sits on a render of `frame` that is `image` px big. */
+export function frameRect(frame: Frame, image: { w: number; h: number }, inner: PageFrame) {
+  const [ox, oy] = frame.origin
+  const kx = image.w / frame.size[0]
+  const ky = image.h / frame.size[1]
+  return {
+    x: ((inner.origin[0] ?? 0) - ox) * kx,
+    y: ((inner.origin[1] ?? 0) - oy) * ky,
+    w: (inner.size[0] ?? 0) * kx,
+    h: (inner.size[1] ?? 0) * ky,
+  }
+}
+
 export function pickGeometry(frame: Frame, image: { w: number; h: number }, mask: AssetFrame): PickGeometry {
   const [ox, oy] = frame.origin
   const [sw, sh] = frame.size
@@ -24,12 +39,7 @@ export function pickGeometry(frame: Frame, image: { w: number; h: number }, mask
     image,
     toPage: (p) => ({ x: ox + p.x / kx, y: oy + p.y / ky }),
     inside: (p) => p.x >= 0 && p.y >= 0 && p.x <= image.w && p.y <= image.h,
-    maskRect: {
-      x: ((mask.origin[0] ?? 0) - ox) * kx,
-      y: ((mask.origin[1] ?? 0) - oy) * ky,
-      w: (mask.size[0] ?? 0) * kx,
-      h: (mask.size[1] ?? 0) * ky,
-    },
+    maskRect: frameRect(frame, image, mask),
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { assetLabel, useAssets } from '@/api/assets'
+import { useSpecification } from '@/api/spec'
 import type { Asset } from '@/api/types'
 import { Button } from '@/components/ui/Button'
 import { ErrorNotice } from '@/components/ui/ErrorNotice'
@@ -7,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { ko } from '@/i18n/ko'
 import { cn } from '@/lib/cn'
 import { useAssetSelectionStore, useSelectedAssets } from '@/stores/useAssetSelectionStore'
+import { FinishingAssign } from './FinishingAssign'
 import { SELECT_COLOR } from './geometry'
 
 const t = ko.studio.finishing
@@ -23,8 +25,8 @@ function pick(projectId: string, id: string, e: React.MouseEvent) {
 }
 
 /**
- * ② 후가공 / Finishing (Milestone 2): which logos / texts get a finish. The finish type itself
- * comes in the next step.
+ * ② 후가공 / Finishing: which logos / texts get a finish (Milestone 2), and which finish goes
+ * on them, the sheet or panels (Milestone 3).
  */
 export function FinishingSection({ projectId, hasFrame }: { projectId: string; hasFrame: boolean }) {
   const assets = useAssets(projectId, hasFrame)
@@ -40,6 +42,8 @@ export function FinishingSection({ projectId, hasFrame }: { projectId: string; h
 
   const pdf = assets.data?.source === 'pdf'
   const approximate = pdf || selected.some((id) => byId.get(id)?.exact === false)
+  const panels = useSpecification(projectId).data?.panels ?? NO_PANELS
+  const targetable = useMemo(() => selected.filter((id) => byId.get(id)?.selectable), [selected, byId])
 
   return (
     <section className="space-y-3 border-t border-line pt-4">
@@ -101,15 +105,12 @@ export function FinishingSection({ projectId, hasFrame }: { projectId: string; h
         </>
       )}
 
-      <p
-        aria-disabled
-        className="rounded-md border border-dashed border-line px-3 py-2 text-center text-xs text-ink-muted/70"
-      >
-        {t.nextStep}
-      </p>
+      <FinishingAssign projectId={projectId} selected={targetable} byId={byId} panels={panels} />
     </section>
   )
 }
+
+const NO_PANELS: never[] = []
 
 function Dot({ color }: { color: string }) {
   return (

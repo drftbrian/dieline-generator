@@ -75,9 +75,12 @@ export function Slider({
   step = 1,
   label,
   disabled,
+  onCommit,
 }: {
   value: number
   onChange: (v: number) => void
+  /** Called once when a drag or key press ends (for undoable edits). */
+  onCommit?: (v: number) => void
   min?: number
   max?: number
   step?: number
@@ -93,11 +96,14 @@ export function Slider({
       step={step}
       disabled={disabled}
       onValueChange={(v) => onChange(v[0] ?? value)}
+      onValueCommit={onCommit ? (v) => onCommit(v[0] ?? value) : undefined}
       onKeyDown={(e) => {
         if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
           e.preventDefault()
           const dir = e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 1
-          onChange(Math.min(max, Math.max(min, value + dir * step * 10)))
+          const next = Math.min(max, Math.max(min, value + dir * step * 10))
+          onChange(next)
+          onCommit?.(next)
         }
       }}
     >

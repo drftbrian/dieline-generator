@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useAssets } from '@/api/assets'
+import { useFinishingPreview } from '@/api/finishing'
 import { sourceFileUrl } from '@/api/source'
 import { Spinner } from '@/components/ui/Spinner'
 import type { StudioRegionProps } from '@/features/studio/types'
@@ -9,9 +10,12 @@ import { ko } from '@/i18n/ko'
 import { AssetOverlay, SelectModeToggle } from '@/features/finishing/AssetOverlay'
 import { pickGeometry } from '@/features/finishing/geometry'
 import { useAssetPicking } from '@/features/finishing/useAssetPicking'
+import { FinishPreviewLayer, FinishSplitControl, FinishViewToggle } from '@/features/finishing/FinishingView'
+import { useObjectUrl } from '@/features/finishing/useObjectUrl'
 import { formatDateTime } from '@/lib/format'
 import { useAssetSelectionStore } from '@/stores/useAssetSelectionStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
+import { isDirty, useFinishingStore } from '@/stores/useFinishingStore'
 import { CompareControls, ViewLabel, ZoomControls } from './CanvasControls'
 import { GenerationStatus } from './GenerationStatus'
 import { SourceLayer } from './SourceLayer'
@@ -39,7 +43,7 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
   // Only while the source render still exists (a deleted one has no image to compare with).
   const originalUrl =
     enhancement && flats.some((f) => f.id === enhancement.source_version_id) ? enhancement.source_image_url : null
-  const comparing = !!originalUrl && compareOn
+
 
   // 후가공 요소 선택: only on a finished flat render that knows where it sits on the page.
   const frame = view === 'flat' && version?.status === 'done' ? version.frame : null
@@ -56,6 +60,19 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
     [assets.data],
   )
   const picking = useAssetPicking(pid, geo)
+
+  // 후가공 보기 (원본 / 후가공 / 비교): the saved revision's preview over the render.
+  const savedRevision = useFinishingStore((s) => (s.projectId === pid ? s.saved.revision : 0))
+  const hasFinishes = useFinishingStore((s) => s.projectId === pid && s.saved.assignments.some((a) => a.enabled))
+  const finishPending = useFinishingStore((s) => s.projectId === pid && (s.status === 'saving' || isDirty(s)))
+  const finishView = useCanvasStore((s) => s.finishView)
+  const finishable = !!frame && !!imageSize
+  const finishOn = finishable && hasFinishes && finishView !== 'original'
+  const preview = useFinishingPreview(pid, version?.id ?? null, savedRevision, finishOn)
+  const previewUrl = useObjectUrl(finishOn ? preview.data?.blob : null)
+  const finishCompare = finishOn && finishView === 'compare'
+  // The AI 보정 divider only while the finishing preview is off (one comparison at a time).
+  const comparing = !!originalUrl && compareOn && !finishOn
   const hovering = useAssetSelectionStore((s) => s.hover?.projectId === pid)
 
   const page = { w: Math.round(spec.page.width_pt), h: Math.round(spec.page.height_pt) }
@@ -119,7 +136,16 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                   <Spinner />
                 </div>
               )}
-              {originalUrl && imageSize && <CompareControls />}
+              {originalUrl && imageSize && !finishOn && <CompareControls />}
+              {view === 'flat' && version && finishable && (
+                <FinishViewToggle
+                  available={hasFinishes}
+                  loading={finishOn && (preview.isFetching || (!previewUrl && !preview.isError))}
+                  stale={finishPending}
+                  failed={finishOn && preview.isError}
+                />
+              )}
+              {finishCompare && <FinishSplitControl />}
               {view === 'flat' && version && imageSize && (
                 <SelectModeToggle
                   disabled={!frame || !!assets.error}
@@ -170,6 +196,16 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                       style={{ left: split * imageSize.w, height: imageSize.h, width: 2 / vp.zoom, marginLeft: -1 / vp.zoom }}
                     />
                   </>
+                )}
+                {finishOn && frame && previewUrl && preview.data && (
+                  <FinishPreviewLayer
+                    url={previewUrl}
+                    frame={frame}
+                    previewFrame={preview.data.frame}
+                    image={imageSize}
+                    compare={finishCompare}
+                    zoom={vp.zoom}
+                  />
                 )}
                 {geo && <AssetOverlay projectId={pid} rect={geo.maskRect} valid={selectableIds} />}
               </>

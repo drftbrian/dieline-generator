@@ -21,6 +21,8 @@ type Actions = {
   setSelecting: (on: boolean) => void
   /** Replace the selection with one asset (null: clear it). */
   select: (projectId: string, id: string | null) => void
+  /** Replace the selection with these assets. */
+  selectMany: (projectId: string, ids: string[]) => void
   /** Shift+click: add or remove one asset. */
   toggle: (projectId: string, id: string) => void
   remove: (projectId: string, id: string) => void
@@ -47,6 +49,8 @@ export const useAssetSelectionStore = create<State & Actions>()(
       cycle: {},
       setSelecting: (selecting) => set(selecting ? { selecting } : { selecting, hover: null }),
       select: (pid, id) => set((s) => ({ selected: { ...s.selected, [pid]: id ? [id] : [] } })),
+      selectMany: (pid, ids) =>
+        set((s) => ({ selected: { ...s.selected, [pid]: [...new Set(ids)] }, cycle: { ...s.cycle, [pid]: undefined } })),
       toggle: (pid, id) =>
         set((s) => {
           const cur = s.selected[pid] ?? EMPTY
