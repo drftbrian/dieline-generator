@@ -17,6 +17,7 @@ export function FinishSave({ projectId }: { projectId: string }) {
   const start = useStartFinish(projectId)
   const [strength, setStrength] = useState(70)
   const [started, setStarted] = useState(false)
+  const light = useCanvasStore((s) => s.finishLight)
   const revision = useFinishingStore((s) => (s.projectId === projectId ? s.saved.revision : 0))
   const hasFinishes = useFinishingStore((s) => s.projectId === projectId && s.saved.assignments.some((a) => a.enabled))
   const pending = useFinishingStore((s) => s.projectId === projectId && (s.status === 'saving' || isDirty(s)))
@@ -27,7 +28,7 @@ export function FinishSave({ projectId }: { projectId: string }) {
     if (!version || blocked) return
     setStarted(false)
     start.mutate(
-      { sourceId: version.id, revision, ai, strength: strength / 100 },
+      { sourceId: version.id, revision, ai, strength: strength / 100, light },
       {
         onSuccess: () => {
           setStarted(true)

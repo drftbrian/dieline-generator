@@ -163,6 +163,10 @@ MISREGISTER = Param(
     "±0.5-2 mm in production",
 )
 
+RAISED = Param(
+    "height_um", "두께", "Coat height", 20, 100, 50, "µm", note="digital raised UV 20-100 µm"
+)
+
 # Dome: capillary meniscus, ~1.5 mm ±0.5 (Screen Printing mag, Publog).
 DOME_HEIGHT = Param("height_mm", "돔 높이", "Dome height", 0.5, 2.5, 1.5, "mm")
 CLARITY = Param("clarity", "투명도", "Optical clarity", 0.7, 1.0, 0.95)
@@ -334,7 +338,7 @@ FINISHES: tuple[Finish, ...] = (
         "Raised UV",
         "clearcoat",
         "selective",
-        available=False,
+        params=(_clear_roughness(0.03, "glossy raised clear"), GLOSS, SATURATION, RAISED),
         note="20-100 µm digital raised UV (Scodix type); Korean '에폭시' on cards often means this",
     ),
     # E. Resin domes — poured resin with a pinned meniscus; applied labels, not a board coating.

@@ -237,6 +237,7 @@ class FinishIn(BaseModel):
     # photos of that finish; only a bounded light/texture map inside the finish is kept.
     ai: bool = False
     strength: float = Field(0.7, ge=0, le=1)
+    light: Literal["top", "raking"] = "top"  # top-down studio light, or a low raking light
 
 
 class EnhanceInterpretIn(BaseModel):

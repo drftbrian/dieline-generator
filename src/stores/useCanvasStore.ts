@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { FinishLight } from '@/api/types'
 
 /** The Studio's steps: ① 원본 → ② 플랫 렌더 → ③ 레퍼런스 합성. */
 export type ViewMode = 'source' | 'flat' | 'merge'
@@ -22,6 +23,8 @@ type State = {
   finishView: FinishView
   /** Divider of the 후가공 비교 view, 0..1 of the image width (original on the left). */
   finishSplit: number
+  /** 후가공 미리보기 조명: light from above, or a low raking light that shows relief. */
+  finishLight: FinishLight
   /** Last time the user zoomed/panned/switched view — decides whether a finished job takes over the canvas. */
   interactedAt: number
 }
@@ -40,6 +43,7 @@ type Actions = {
   setSplit: (x: number) => void
   setFinishView: (v: FinishView) => void
   setFinishSplit: (x: number) => void
+  setFinishLight: (l: FinishLight) => void
   touch: () => void
 }
 
@@ -54,6 +58,8 @@ export const useCanvasStore = create<State & Actions>()((set) => ({
   interactedAt: 0,
   finishView: 'original',
   finishSplit: 0.5,
+  finishLight: 'top',
+  setFinishLight: (finishLight) => set({ finishLight }),
   setFinishView: (finishView) => set({ finishView }),
   setFinishSplit: (x) => set({ finishSplit: Math.min(1, Math.max(0, x)) }),
   setView: (view) => set({ view, interactedAt: Date.now() }),

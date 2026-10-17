@@ -14,6 +14,7 @@ import {
   useFinishingStore,
 } from '@/stores/useFinishingStore'
 import { AppliedList } from './AppliedList'
+import { FinishChecks, FinishPlates, FinishSweep } from './FinishingChecks'
 import { FinishPicker } from './FinishPicker'
 import { FinishSave } from './FinishSave'
 
@@ -56,7 +57,10 @@ export function FinishingAssign({
         <>
           <FinishPicker catalog={catalog.data} selected={selected} panels={panels} />
           <AppliedList projectId={projectId} catalog={catalog.data} byId={byId} panels={panels} selected={selected} />
+          <FinishChecks projectId={projectId} />
           <FinishSave projectId={projectId} />
+          <FinishPlates projectId={projectId} />
+          <FinishSweep projectId={projectId} />
         </>
       )}
     </div>

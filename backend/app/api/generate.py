@@ -365,6 +365,7 @@ def start_finish(pid: str, vid: str, body: FinishIn, request: Request):
             "finishing_revision": fin.revision,
             "ai": body.ai,
             "strength": body.strength,
+            "light": body.light,
         },
     )
     remember(request, f"finish:{pid}:{vid}", 202, out.model_dump())

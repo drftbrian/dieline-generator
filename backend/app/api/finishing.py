@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import threading
 from collections import OrderedDict
+from typing import Literal
 
 import numpy as np
 from fastapi import APIRouter, Response
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 from app.api import assets as assets_api
 from app.errors import ApiError
 from app.finishing import assets as fa
-from app.finishing import catalog, compose
+from app.finishing import catalog, compose, constraints, plates
 from app.finishing import spec as fspec
 from app.render import shading
 from app.render.layers import structure_key
@@ -89,6 +90,24 @@ def get_catalog() -> CatalogOut:
 # ---- specification -------------------------------------------------------------------------
 
 
+class WarningOut(BaseModel):
+    """A manufacturing check on one assignment (research: manufacturing-constraints.md)."""
+
+    assignment_id: str | None  # None: the whole specification (a combination)
+    finish: str | None
+    level: Literal["error", "warning", "info"]
+    code: str
+    message: str  # Korean
+    hint: str | None = None
+    measured: float | None = None  # e.g. thinnest line in mm
+    limit: float | None = None
+
+
+class WarningsOut(BaseModel):
+    revision: int
+    warnings: list[WarningOut]
+
+
 class FinishingSaveIn(BaseModel):
     base_revision: int  # the revision this edit started from (0 = none yet)
     assignments: list[fspec.Assignment]
@@ -136,11 +155,13 @@ def _version(pid: str, vid: str) -> dict:
     return v
 
 
-def overlay(pid: str, spec, vid: str, fin: fspec.FinishingSpec) -> tuple[bytes, dict]:
+def overlay(
+    pid: str, spec, vid: str, fin: fspec.FinishingSpec, light: str = "top"
+) -> tuple[bytes, dict]:
     """RGBA PNG of only the finished pixels, at the version image's own resolution and over
     its own pixels (so the canvas keeps the full-resolution render everywhere else), cropped to
     the changed area. Returns the PNG and where it sits (page pt and image pixels)."""
-    c = compose.compose(pid, spec, vid, fin)
+    c = compose.compose(pid, spec, vid, fin, light)
     h, w = c.image.shape[:2]
     ox, oy = c.origin
     buf = io.BytesIO()
@@ -158,24 +179,31 @@ def overlay(pid: str, spec, vid: str, fin: fspec.FinishingSpec) -> tuple[bytes, 
     }
 
 
-@router.get("/projects/{pid}/finishing/preview")
-def finishing_preview(pid: str, version_id: str, revision: int | None = None):
-    """Transparent PNG of the finished pixels of a flat version (material renderers; holographic,
-    pigment foil, uncoated and dome are still placeholders), at the version's full resolution. Lay it over the version image at the frame the
-    headers give (page pt); everywhere it is transparent the version image is unchanged."""
-    spec = assets_api._ready(pid)
-    _version(pid, version_id)
-    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
-    key = (pid, version_id, fin.revision, structure_key(spec))
+Light = Literal["top", "raking"]
+
+
+def _cached(key: tuple, make):
     with _lock:
         hit = _cache.get(key)
     if hit is None:
-        hit = overlay(pid, spec, version_id, fin)
+        hit = make()
         with _lock:
             _cache[key] = hit
             while len(_cache) > 16:
                 _cache.popitem(last=False)
-    png, fr = hit
+    return hit
+
+
+@router.get("/projects/{pid}/finishing/preview")
+def finishing_preview(pid: str, version_id: str, revision: int | None = None, light: Light = "top"):
+    """Transparent PNG of the finished pixels of a flat version, at the version's full
+    resolution. Lay it over the version image where ``X-Overlay-Rect`` says; everywhere it is
+    transparent the version image is unchanged. ``light``: top-down studio light or raking."""
+    spec = assets_api._ready(pid)
+    _version(pid, version_id)
+    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
+    key = ("overlay", pid, version_id, fin.revision, structure_key(spec), light)
+    png, fr = _cached(key, lambda: overlay(pid, spec, version_id, fin, light))
     headers = {
         "X-Frame-Origin": f"{fr['origin'][0]},{fr['origin'][1]}",
         "X-Frame-Size": f"{fr['size'][0]},{fr['size'][1]}",
@@ -184,3 +212,50 @@ def finishing_preview(pid: str, version_id: str, revision: int | None = None):
         "Cache-Control": "no-store",
     }
     return Response(png, media_type="image/png", headers=headers)
+
+
+@router.get("/projects/{pid}/finishing/sweep")
+def finishing_sweep(pid: str, version_id: str, revision: int | None = None, light: Light = "top"):
+    """Animated GIF of the finished area with the light swinging across it."""
+    spec = assets_api._ready(pid)
+    _version(pid, version_id)
+    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
+
+    def make():
+        c = compose.compose(pid, spec, version_id, fin, light)
+        if c.box is None:
+            raise ApiError(409, "FINISHING_EMPTY", "적용된 후가공이 없습니다.")
+        return compose.sweep(c, light), {}
+
+    key = ("sweep", pid, version_id, fin.revision, structure_key(spec), light)
+    gif, _ = _cached(key, make)
+    return Response(gif, media_type="image/gif", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/projects/{pid}/finishing/plates")
+def finishing_plates(pid: str, revision: int | None = None):
+    """The finishing plates for the printer: one vector PDF per finish (100% black art in
+    dieline coordinates, the dieline on a non-printing layer) and the specification JSON."""
+    spec = assets_api._ready(pid)
+    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
+    if not any(a.enabled for a in fin.assignments):
+        raise ApiError(409, "FINISHING_EMPTY", "적용된 후가공이 없습니다.")
+    data = plates.build(pid, spec, fin)
+    name = f"finishing-plates-r{fin.revision}.zip"
+    return Response(
+        data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.get("/projects/{pid}/finishing/warnings", response_model=WarningsOut)
+def finishing_warnings(pid: str, revision: int | None = None) -> WarningsOut:
+    """Manufacturing checks of a saved revision: line widths, distances from cuts and folds,
+    glue flap, combinations (research defaults; a printer's own limits may differ)."""
+    spec = assets_api._ready(pid)
+    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
+    return WarningsOut(
+        revision=fin.revision,
+        warnings=[WarningOut(**w) for w in constraints.check(pid, spec, fin)],
+    )

@@ -48,8 +48,11 @@ def test_required_subtypes_exist():
     assert catalog.finish("foil.black_matte").model == "pigment"
     assert catalog.finish("foil.white").model == "pigment"
     assert catalog.finish("foil.gold").model == "metal"
-    # Raised UV is reserved, not offered (not to be confused with spot UV or resin domes).
-    assert not catalog.finish("coating.raised_uv").available
+    # Raised UV is its own clear coat (not spot UV, not a resin dome), with a coat height.
+    raised = catalog.finish("coating.raised_uv")
+    assert raised.available and raised.model == "clearcoat"
+    assert any(p.id == "height_um" for p in raised.params)
+    assert all(f.available for f in catalog.FINISHES)
 
 
 def test_clamp_params():

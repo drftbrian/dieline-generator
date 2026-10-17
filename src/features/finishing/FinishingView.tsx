@@ -1,12 +1,13 @@
 import { SegmentedControl } from '@/components/ui/controls'
 import { Spinner } from '@/components/ui/Spinner'
 import { ko } from '@/i18n/ko'
+import type { FinishLight } from '@/api/types'
 import { useCanvasStore, type FinishView } from '@/stores/useCanvasStore'
 
 const t = ko.studio.finishing.view
 const stop = (e: React.SyntheticEvent) => e.stopPropagation()
 
-/** H: "원본 / 후가공 / 비교" on the ② canvas, top centre. */
+/** H: "원본 / 후가공 / 비교" on the ② canvas, top centre, with "조명: 위 / 측면광" under it while finishes show. */
 export function FinishViewToggle({
   available,
   loading,
@@ -20,6 +21,7 @@ export function FinishViewToggle({
   failed: boolean
 }) {
   const view = useCanvasStore((s) => s.finishView)
+  const light = useCanvasStore((s) => s.finishLight)
   const shown: FinishView = available ? view : 'original'
   const note = !available ? t.none : failed ? t.failed : loading ? t.loading : stale && shown !== 'original' ? t.stale : null
   return (
@@ -41,6 +43,18 @@ export function FinishViewToggle({
           ]}
         />
       </div>
+      {shown !== 'original' && (
+        <div className="flex items-center gap-1.5 rounded-lg border border-line bg-surface/95 py-0.5 pr-0.5 pl-2 shadow-sm">
+          <span className="text-[11px] text-ink-muted">{t.light}</span>
+          <SegmentedControl<FinishLight>
+            size="sm"
+            label={t.light}
+            value={light}
+            onChange={(v) => useCanvasStore.getState().setFinishLight(v)}
+            options={(['top', 'raking'] as const).map((v) => ({ value: v, label: t.lights[v], title: t.lightTitles[v] }))}
+          />
+        </div>
+      )}
       {note && (shown !== 'original' || !available) && (
         <span className="flex items-center gap-1 rounded-md bg-surface/90 px-2 py-0.5 text-[11px] text-ink-muted shadow-sm">
           {loading && shown !== 'original' && <Spinner className="size-3" />}

@@ -7,7 +7,9 @@ version image, bit for bit. Shared by the preview overlay and the finished-versi
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import io
+import math
+from dataclasses import dataclass, replace
 
 import numpy as np
 from PIL import Image
@@ -92,7 +94,9 @@ def target_mask(
     )
 
 
-def compose(pid: str, spec: Specification, vid: str, fin: fspec.FinishingSpec) -> Composed:
+def compose(
+    pid: str, spec: Specification, vid: str, fin: fspec.FinishingSpec, light: str = "top"
+) -> Composed:
     path = repo.project_dir(pid) / "versions" / f"{vid}.png"
     if not path.exists():
         raise ApiError(
@@ -139,9 +143,54 @@ def compose(pid: str, spec: Specification, vid: str, fin: fspec.FinishingSpec) -
     y0, x0 = max(0, int(ys.min()) - pad), max(0, int(xs.min()) - pad)
     y1, x1 = min(h, int(ys.max()) + 1 + pad), min(w, int(xs.max()) + 1 + pad)
     base = img[y0:y1, x0:x1].astype(np.float32) / 255
-    scene = material.Scene(px_per_mm=px_per_mm, offset=(y0, x0), full=(h, w))
+    scene = material.lighting(
+        material.Scene(px_per_mm=px_per_mm, offset=(y0, x0), full=(h, w)), light
+    )
     crop_stack = [(f, p, m[y0:y1, x0:x1]) for f, p, m in stack]
     out, changed = material.render(base, crop_stack, scene)
     return Composed(
         img, raster.origin, raster.scale, (y0, x0, y1, x1), out, changed, crop_stack, scene
     )
+
+
+SWEEP_FRAMES = 12
+SWEEP_EDGE = 900  # px, long edge of the sweep animation
+
+
+def sweep(c: Composed, light: str = "top", frames: int = SWEEP_FRAMES) -> bytes:
+    """Animated GIF of the finished area with the light swinging across it (±40° around the
+    flat render's key, the reflections moving with it): how foil, coatings and relief catch
+    light when a sample is tilted in the hand. Reduced to SWEEP_EDGE for speed."""
+    assert c.box is not None and c.scene is not None
+    y0, x0, y1, x1 = c.box
+    k = min(1.0, SWEEP_EDGE / max(y1 - y0, x1 - x0))
+    size = (max(1, round((x1 - x0) * k)), max(1, round((y1 - y0) * k)))
+    base_img = Image.fromarray(c.image[y0:y1, x0:x1]).resize(size, Image.LANCZOS)
+    base = np.asarray(base_img).astype(np.float32) / 255
+    stack = []
+    for f, p, m in c.stack:
+        mm = Image.fromarray((np.clip(m, 0, 1) * 255).astype(np.uint8)).resize(size, Image.BILINEAR)
+        stack.append((f, p, np.asarray(mm).astype(np.float32) / 255))
+    fh, fw = c.image.shape[:2]
+    scene = replace(
+        c.scene,
+        px_per_mm=c.scene.px_per_mm * k,
+        offset=(round(y0 * k), round(x0 * k)),
+        full=(round(fh * k), round(fw * k)),
+    )
+    out_frames = []
+    for i in range(frames):
+        t = math.sin(2 * math.pi * i / frames)
+        angle = scene.light_angle + 40 * t
+        lx, ly = math.sin(math.radians(angle)), -math.cos(math.radians(angle))
+        sc = replace(
+            material.lighting(replace(scene, light_angle=angle), light),
+            softbox=(0.5 + 0.3 * lx, 0.5 + 0.3 * ly),
+        )
+        out, changed = material.render(base, stack, sc)
+        frame = np.where(changed[..., None], out, base)
+        out_frames.append(Image.fromarray((np.clip(frame, 0, 1) * 255).astype(np.uint8)))
+    buf = io.BytesIO()
+    pal = [f.quantize(colors=255, method=Image.Quantize.MEDIANCUT) for f in out_frames]
+    pal[0].save(buf, "GIF", save_all=True, append_images=pal[1:], duration=110, loop=0)
+    return buf.getvalue()

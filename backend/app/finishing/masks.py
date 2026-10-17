@@ -74,32 +74,40 @@ def _place(alpha: np.ndarray, h: int, w: int, dy: int, dx: int) -> np.ndarray:
     return out
 
 
-def svg_coverage(
-    svg: str, bbox: list[float], clip: list[float] | None, spec: Specification, long_edge: int
-) -> np.ndarray:
-    """Anti-aliased coverage (HxW, 0..1) of an outlined SVG placed at ``bbox`` (page pt)."""
-    raster, crop = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
+def place_svg(page, svg: str, bbox: list[float], clip: list[float] | None):
+    """Draw an outlined SVG on ``page`` at ``bbox`` (page pt), only its part inside the clipping
+    ancestors' ``clip``, as vectors. Returns the drawn rectangle (None when fully clipped)."""
     src = pymupdf.open(stream=svg.encode("utf-8"), filetype="svg")
     pdf = pymupdf.open("pdf", src.convert_to_pdf())
-    doc = pymupdf.open()
-    page = doc.new_page(width=spec.page.width_pt, height=spec.page.height_pt)
     target = pymupdf.Rect(*bbox)
     if clip:  # clipping ancestors: draw only the visible part, at its own place
         visible = target & pymupdf.Rect(*clip)
         if visible.is_empty:
-            return np.zeros((raster.h, raster.w), np.float32)
+            return None
         sw, sh = pdf[0].rect.width, pdf[0].rect.height
         kx, ky = sw / max(target.width, 1e-6), sh / max(target.height, 1e-6)
-        src = pymupdf.Rect(
+        part = pymupdf.Rect(
             (visible.x0 - target.x0) * kx,
             (visible.y0 - target.y0) * ky,
             (visible.x1 - target.x0) * kx,
             (visible.y1 - target.y0) * ky,
         )
-        page.show_pdf_page(visible, pdf, 0, clip=src, keep_proportion=False)
-        target = visible
-    else:
-        page.show_pdf_page(target, pdf, 0, keep_proportion=False)
+        page.show_pdf_page(visible, pdf, 0, clip=part, keep_proportion=False)
+        return visible
+    page.show_pdf_page(target, pdf, 0, keep_proportion=False)
+    return target
+
+
+def svg_coverage(
+    svg: str, bbox: list[float], clip: list[float] | None, spec: Specification, long_edge: int
+) -> np.ndarray:
+    """Anti-aliased coverage (HxW, 0..1) of an outlined SVG placed at ``bbox`` (page pt)."""
+    raster, crop = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
+    doc = pymupdf.open()
+    page = doc.new_page(width=spec.page.width_pt, height=spec.page.height_pt)
+    target = place_svg(page, svg, bbox, clip)
+    if target is None:
+        return np.zeros((raster.h, raster.w), np.float32)
     region = (target + (-1, -1, 1, 1)) & pymupdf.Rect(*crop)
     if region.is_empty:
         return np.zeros((raster.h, raster.w), np.float32)

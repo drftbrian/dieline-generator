@@ -672,11 +672,73 @@ export interface paths {
         };
         /**
          * Finishing Preview
-         * @description Transparent PNG of the finished pixels of a flat version (material renderers; holographic,
-         *     pigment foil, uncoated and dome are still placeholders), at the version's full resolution. Lay it over the version image at the frame the
-         *     headers give (page pt); everywhere it is transparent the version image is unchanged.
+         * @description Transparent PNG of the finished pixels of a flat version, at the version's full
+         *     resolution. Lay it over the version image where ``X-Overlay-Rect`` says; everywhere it is
+         *     transparent the version image is unchanged. ``light``: top-down studio light or raking.
          */
         get: operations["finishing_preview_api_projects__pid__finishing_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing/sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finishing Sweep
+         * @description Animated GIF of the finished area with the light swinging across it.
+         */
+        get: operations["finishing_sweep_api_projects__pid__finishing_sweep_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing/plates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finishing Plates
+         * @description The finishing plates for the printer: one vector PDF per finish (100% black art in
+         *     dieline coordinates, the dieline on a non-printing layer) and the specification JSON.
+         */
+        get: operations["finishing_plates_api_projects__pid__finishing_plates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/finishing/warnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finishing Warnings
+         * @description Manufacturing checks of a saved revision: line widths, distances from cuts and folds,
+         *     glue flap, combinations (research defaults; a printer's own limits may differ).
+         */
+        get: operations["finishing_warnings_api_projects__pid__finishing_warnings_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1103,6 +1165,12 @@ export interface components {
              * @default 0.7
              */
             strength: number;
+            /**
+             * Light
+             * @default top
+             * @enum {string}
+             */
+            light: "top" | "raking";
         };
         /** FinishOut */
         FinishOut: {
@@ -1833,6 +1901,38 @@ export interface components {
             download_url: string | null;
             /** Created At */
             created_at: string;
+        };
+        /**
+         * WarningOut
+         * @description A manufacturing check on one assignment (research: manufacturing-constraints.md).
+         */
+        WarningOut: {
+            /** Assignment Id */
+            assignment_id: string | null;
+            /** Finish */
+            finish: string | null;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "error" | "warning" | "info";
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Hint */
+            hint?: string | null;
+            /** Measured */
+            measured?: number | null;
+            /** Limit */
+            limit?: number | null;
+        };
+        /** WarningsOut */
+        WarningsOut: {
+            /** Revision */
+            revision: number;
+            /** Warnings */
+            warnings: components["schemas"]["WarningOut"][];
         };
         /** FrameOut */
         app__api__assets__FrameOut: {
@@ -3264,6 +3364,7 @@ export interface operations {
             query: {
                 version_id: string;
                 revision?: number | null;
+                light?: "top" | "raking";
             };
             header?: never;
             path: {
@@ -3280,6 +3381,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    finishing_sweep_api_projects__pid__finishing_sweep_get: {
+        parameters: {
+            query: {
+                version_id: string;
+                revision?: number | null;
+                light?: "top" | "raking";
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    finishing_plates_api_projects__pid__finishing_plates_get: {
+        parameters: {
+            query?: {
+                revision?: number | null;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    finishing_warnings_api_projects__pid__finishing_warnings_get: {
+        parameters: {
+            query?: {
+                revision?: number | null;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WarningsOut"];
                 };
             };
             /** @description Default Response */

@@ -31,7 +31,7 @@ def test_catalogue_lists_categories_and_finishes(client):
     by = {f["id"]: f for f in out["finishes"]}
     assert by["foil.gold"]["label_ko"] == "금박" and by["foil.gold"]["scope"] == "selective"
     assert by["surface.matte_lamination"]["scope"] == "surface"
-    assert by["coating.raised_uv"]["available"] is False
+    assert by["coating.raised_uv"]["available"] is True
     assert any(p["id"] == "depth_mm" for p in by["relief.emboss"]["params"])
 
 
@@ -69,10 +69,6 @@ def test_stale_saves_conflict_instead_of_overwriting(client, project):  # noqa: 
     [
         ({"finish": "foil.nope", "targets": [{"kind": "asset", "id": "1:2"}]}, "FINISH_UNKNOWN"),
         (
-            {"finish": "coating.raised_uv", "targets": [{"kind": "asset", "id": "1:2"}]},
-            "FINISH_UNAVAILABLE",
-        ),
-        (
             {"finish": "surface.gloss_lamination", "targets": [{"kind": "asset", "id": "1:2"}]},
             "FINISHING_SCOPE",
         ),
@@ -99,6 +95,19 @@ def test_stale_saves_conflict_instead_of_overwriting(client, project):  # noqa: 
 def test_invalid_assignments_are_refused(client, project, assignment, code):  # noqa: F811
     res = _save(client, project, 0, [assignment])
     assert res.status_code == 422 and res.json()["error"]["code"] == code, res.json()
+
+
+def test_unavailable_finish_is_refused(client, project, monkeypatch):  # noqa: F811
+    import dataclasses
+
+    from app.finishing import catalog
+
+    off = dataclasses.replace(catalog.finish("dome.epoxy"), available=False)
+    monkeypatch.setitem(catalog.BY_ID, "dome.epoxy", off)
+    res = _save(
+        client, project, 0, [{"finish": "dome.epoxy", "targets": [{"kind": "asset", "id": "1:2"}]}]
+    )
+    assert res.status_code == 422 and res.json()["error"]["code"] == "FINISH_UNAVAILABLE"
 
 
 def _preview(client, pid, vid, revision=None):

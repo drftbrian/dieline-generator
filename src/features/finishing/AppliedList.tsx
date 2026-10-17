@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { assetLabel } from '@/api/assets'
-import type { Asset, Finish, FinishCatalog, Panel } from '@/api/types'
+import type { Asset, Finish, FinishCatalog, FinishingWarning, Panel } from '@/api/types'
 import { IconButton } from '@/components/ui/controls'
 import { ko } from '@/i18n/ko'
 import { cn } from '@/lib/cn'
@@ -9,7 +9,9 @@ import { useCanvasStore } from '@/stores/useCanvasStore'
 import { useFinishingStore, type WorkingAssignment } from '@/stores/useFinishingStore'
 import { ParamEditor, SurfacePicker } from './FinishControls'
 import { assetTargets, defaultParams, surfaceOf, surfaceTargets } from './params'
+import { WarningLine } from './FinishingChecks'
 import { Swatch } from './Swatch'
+import { useWarnings } from './useSavedFinishing'
 
 const t = ko.studio.finishing.assign
 const fin = useFinishingStore.getState
@@ -40,6 +42,7 @@ function targetSummary(a: WorkingAssignment, { byId, panels }: Pick<Ctx, 'byId' 
 export function AppliedList(ctx: Ctx) {
   const assignments = useFinishingStore((s) => s.assignments)
   const [editing, setEditing] = useState<string | null>(null)
+  const warnings = useWarnings(ctx.projectId).data?.warnings
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-medium text-ink-muted">{t.applied(assignments.length)}</p>
@@ -55,6 +58,7 @@ export function AppliedList(ctx: Ctx) {
               first={i === 0}
               last={i === assignments.length - 1}
               editing={editing === a.id}
+              warnings={warnings?.filter((w) => w.assignment_id === a.id) ?? []}
               onEdit={(on) => setEditing(on ? a.id : null)}
             />
           ))}
@@ -70,6 +74,7 @@ function Row({
   first,
   last,
   editing,
+  warnings,
   onEdit,
 }: {
   a: WorkingAssignment
@@ -77,6 +82,7 @@ function Row({
   first: boolean
   last: boolean
   editing: boolean
+  warnings: FinishingWarning[]
   onEdit: (on: boolean) => void
 }) {
   const finish = ctx.catalog.finishes.find((f) => f.id === a.finish)
@@ -147,6 +153,13 @@ function Row({
           </IconButton>
         </span>
       </div>
+      {warnings.length > 0 && (
+        <ul className="space-y-1 px-2 pb-1.5 pl-[38px]">
+          {warnings.map((w, i) => (
+            <WarningLine key={`${w.code}-${i}`} w={w} />
+          ))}
+        </ul>
+      )}
       {editing && finish && <EditPanel a={a} finish={finish} panels={ctx.panels} surface={onSurface} />}
     </li>
   )

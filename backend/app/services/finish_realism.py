@@ -153,7 +153,7 @@ def run_finish(ctx: JobContext, vid: str) -> dict:
     src_sha = sha(src_path)
 
     ctx.stage("compose", "running")
-    c = compose.compose(pid, spec, src["id"], fin)
+    c = compose.compose(pid, spec, src["id"], fin, params.get("light") or "top")
     if c.box is None:
         raise ApiError(409, "FINISHING_EMPTY", "적용된 후가공이 없습니다.")
     finished = c.full()

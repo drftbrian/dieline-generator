@@ -69,7 +69,8 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
   // A 후가공 버전 already has its finishes in the image: no overlay on top of it.
   const finishable = !!frame && !!imageSize && !version?.finishing
   const finishOn = finishable && hasFinishes && finishView !== 'original'
-  const preview = useFinishingPreview(pid, version?.id ?? null, savedRevision, finishOn)
+  const finishLight = useCanvasStore((s) => s.finishLight)
+  const preview = useFinishingPreview(pid, version?.id ?? null, savedRevision, finishLight, finishOn)
   const previewUrl = useObjectUrl(finishOn ? preview.data?.blob : null)
   const finishCompare = finishOn && finishView === 'compare'
   // The AI 보정 divider only while the finishing preview is off (one comparison at a time).

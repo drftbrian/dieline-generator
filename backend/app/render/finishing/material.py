@@ -9,15 +9,19 @@ Tilts of the surface (foil impression rim, paper micro-relief, relief shoulders)
 reflection, which is what makes foil sparkle and edges catch light.
 
 Tone levels come from measured reference photos (``calibration.json``, written by
-``scripts/finish_calibrate.py``); nothing here is fitted to the artwork. Contract shared with the
-placeholder: masks come only from source geometry and every pixel outside the returned region
-is the source pixel.
+``scripts/finish_calibrate.py``); nothing here is fitted to the artwork. Contract: masks come only
+from source geometry and every pixel outside the returned region is the source pixel.
+
+Lighting: "top" (the flat render's soft overhead key) or "raking" (a low light from the light
+side, which shows relief, foil and coating edges the way a hand-held sample does). Only the
+finishes respond to it; the board and print keep the flat render's light.
 """
 
 from __future__ import annotations
 
+import colorsys
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
@@ -26,14 +30,21 @@ from scipy import ndimage
 
 from app.finishing import catalog
 from app.render import shading
-from app.render.finishing import placeholder
 from app.render.folds import light_vector
 
 CALIBRATION = Path(__file__).with_name("calibration.json")
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
 
-# Models this module renders; the rest still use the placeholder (M5).
-MODELS = {"metal", "relief", "clearcoat"}
+# Stack order (manufacturing order): substrate surface and coats, foils, relief, domes.
+LAYER = {
+    "uncoated": 0,
+    "clearcoat": 1,
+    "metal": 2,
+    "pigment": 2,
+    "holographic": 2,
+    "relief": 3,
+    "dome": 4,
+}
 
 
 @cache
@@ -56,6 +67,20 @@ class Scene:
     camera_tilt_gain: float = 3.0  # how far a surface tilt moves the reflection (sheet widths)
     # Relief under a large soft key is far gentler than in the (raking) reference photos.
     relief_light: float = 0.3
+
+
+def lighting(scene: Scene, light: str) -> Scene:
+    """The scene under the named light ("top" = as is, "raking" = low light from the side)."""
+    if light != "raking":
+        return scene
+    lx, ly = shading.light_dir(scene.light_angle)
+    return replace(
+        scene,
+        light_elevation_deg=12.0,
+        relief_light=0.55,
+        softbox=(0.5 + 0.75 * lx, 0.5 + 0.75 * ly),  # low, off the light side of the sheet
+        softbox_radius=0.55,
+    )
 
 
 def _grid(shape, scene: Scene) -> tuple[np.ndarray, np.ndarray]:
@@ -93,7 +118,7 @@ def reflection(
     dv = v - cv + scene.camera_tilt_gain * 2 * np.asarray(sy, np.float32) * scene.softbox_radius
     r = np.sqrt(du * du + dv * dv) / scene.softbox_radius
     edge = 0.04 + 0.6 * roughness  # rough surfaces blur the softbox's edge
-    return (1 / (1 + np.exp((r - 1) / edge))).astype(np.float32)
+    return (1 / (1 + np.exp(np.clip((r - 1) / edge, -60, 60)))).astype(np.float32)
 
 
 def strip(m: np.ndarray, scene: Scene, sx, sy, roughness: float) -> np.ndarray:
@@ -114,6 +139,11 @@ def strip(m: np.ndarray, scene: Scene, sx, sy, roughness: float) -> np.ndarray:
     d = (du * lx + dv * ly) / diag  # across the band: along the light direction
     width = 0.10 + 0.5 * roughness
     return np.exp(-((d / width) ** 2)).astype(np.float32)
+
+
+def _rgb(hexv: str | None, fallback: str = "#C0C0C0") -> np.ndarray:
+    h = (hexv or fallback).lstrip("#")
+    return np.array([int(h[i : i + 2], 16) / 255 for i in (0, 2, 4)], np.float32)
 
 
 def _tint(f: catalog.Finish) -> tuple[np.ndarray, dict]:
@@ -160,9 +190,16 @@ def metal(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Sce
     tone = np.clip(tone + glint * 0.12 * sparkle * (1 - rough), 0, 1)[..., None]
     # Colour: metal tints its reflection most in the mid and dark tones (rich gold, deep
     # bronze shadows); the brightest highlights go towards white.
-    rich = 1 + (tint - 1) * (0.6 + 1.4 * np.clip(1 - tone / lv["highlight"], 0, 1))
     whiten = np.clip((tone - lv["body"]) / max(1e-3, 1 - lv["body"]), 0, 1) ** 1.5 * 0.7
-    col = np.clip(rich * tone * (1 - whiten) + tone * whiten, 0, 1)
+    base = _rgb(f.color)
+    if float(base @ LUMA) < 0.35:
+        # A dark or coloured metal film (먹박 gloss, 적·녹·청 metallic): its colour is its own
+        # reflectance, the mirrored highlights stay near white.
+        col = base * (tone / lv["body"]) * (1 - whiten) + tone * whiten
+    else:
+        rich = 1 + (tint - 1) * (0.6 + 1.4 * np.clip(1 - tone / lv["highlight"], 0, 1))
+        col = rich * tone * (1 - whiten) + tone * whiten
+    col = np.clip(col, 0, 1)
     a = m[..., None]
     return img * (1 - a) + col * a
 
@@ -221,14 +258,22 @@ def clearcoat(
         out = _saturate(out, 1 - 0.25 * rough) * (1 - veil) + veil
     s = reflection(m.shape, scene, 0.0, 0.0, rough)
     peak = gloss * (1 - rough) ** 2
-    if f.id in ("coating.spot_uv", "coating.varnish_gloss", "coating.flood_uv"):
-        # A thick clear layer: its edge is a small bevel that catches the key light.
+    if f.id in (
+        "coating.spot_uv",
+        "coating.varnish_gloss",
+        "coating.flood_uv",
+        "coating.raised_uv",
+    ):
+        # A thick clear layer: its edge is a small bevel that catches the key light (raised UV:
+        # 20-100 µm, a visible rounded edge).
         cal = calibration()["spot_uv"]
         ppm = scene.px_per_mm
-        h = ndimage.gaussian_filter((m > 0.5).astype(np.float32), max(0.7, 0.08 * ppm)) * 0.02
+        thick = float(p.get("height_um", 20.0)) / 1000
+        soft_edge = 0.08 + 1.5 * max(0.0, thick - 0.02)
+        h = ndimage.gaussian_filter((m > 0.5).astype(np.float32), max(0.7, soft_edge * ppm)) * thick
         sx, sy = _slopes(h, ppm)
         lv = light_vector(scene.light_angle, scene.light_elevation_deg)
-        edge = np.clip((-sx * lv[0] - sy * lv[1]) * 40, -1, 1)
+        edge = np.clip((-sx * lv[0] - sy * lv[1]) * 40 * (0.02 / max(thick, 0.02)), -1, 1)
         sheen = s * peak * (cal["gloss_peak"] - cal["matte_base"]) * 0.35
         out = (
             out
@@ -243,7 +288,119 @@ def clearcoat(
     return np.clip(img * (1 - a) + np.clip(out, 0, 1) * a, 0, 1)
 
 
-RENDER = {"metal": metal, "relief": relief, "clearcoat": clearcoat}
+def pigment(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Scene) -> np.ndarray:
+    """Pigment (non-metallic) foil: an opaque, near-matte colour film pressed into the board.
+    Flat colour with a faint sheen and the die's hairline rim; white foil may not fully cover."""
+    ppm = scene.px_per_mm
+    rough = float(p.get("roughness", 0.7))
+    sheen = float(p.get("sheen", 0.1))
+    opacity = float(p.get("opacity", 1.0))
+    impression = float(p.get("impression_mm", 0.02))
+    base = _rgb(f.color)
+    rim = ndimage.gaussian_filter(m, max(0.6, 0.12 * ppm)) * -impression
+    sx, sy = _slopes(rim, ppm)
+    lv = light_vector(scene.light_angle, scene.light_elevation_deg)
+    lit = np.clip((-sx * lv[0] - sy * lv[1]) * 25, -1, 1)
+    soft = reflection(m.shape, scene, sx, sy, max(rough, 0.3))
+    col = base * (1 + 0.05 * lit)[..., None] + (sheen * 0.25 * soft * (1 - rough))[..., None]
+    a = (m * opacity)[..., None]
+    return np.clip(img * (1 - a) + np.clip(col, 0, 1) * a, 0, 1)
+
+
+def holographic(
+    img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Scene
+) -> np.ndarray:
+    """Holographic foil: a silver metal film with a diffraction grating. The rainbow depends on
+    the angle to the light, so it shifts across the shape; under a soft overhead light it reads
+    pale and pastel, under a directional (raking) light the colours saturate."""
+    silver = metal(img, m, catalog.finish("foil.silver"), p, scene)
+    diff = float(p.get("diffraction", 0.6))
+    lines = float(p.get("grating_lines_mm", 1000))
+    u, v = _grid(m.shape, scene)
+    lx, ly = shading.light_dir(scene.light_angle)
+    rim = ndimage.gaussian_filter(m, max(0.6, 0.12 * scene.px_per_mm)) * -0.02
+    sx, sy = _slopes(rim, scene.px_per_mm)
+    phase = (u * lx + v * ly) * (lines / 1000) * 6 + (sx * lx + sy * ly) * 40
+    hue = (phase - np.floor(phase)).ravel()
+    directional = scene.light_elevation_deg < 20
+    sat = (0.22 + 0.4 * diff) * (1.6 if directional else 1.0)
+    lut = np.array(
+        [colorsys.hsv_to_rgb(h, min(sat, 0.85), 1.0) for h in np.linspace(0, 1, 256)], np.float32
+    )
+    rainbow = lut[(hue * 255).astype(int)].reshape(*m.shape, 3)
+    y = (silver @ LUMA)[..., None]
+    k = (0.35 + 0.4 * diff) * m[..., None]
+    out = silver * (1 - k) + np.clip(rainbow * y * 1.1, 0, 1) * k
+    a = m[..., None]
+    return np.clip(img * (1 - a) + out * a, 0, 1)
+
+
+def uncoated(
+    img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Scene
+) -> np.ndarray:
+    """Uncoated board: ink soaks in (lower density, softer colour, dot gain) and the paper
+    fibre shows."""
+    fibre = float(p.get("fibre", 0.6))
+    gain = float(p.get("dot_gain", 0.12))
+    out = _saturate(img, 1 - 1.2 * gain)
+    out = out + (1 - out) * 0.35 * gain  # lower ink density: darks lift
+    sg = max(0.8, 0.12 * scene.px_per_mm)
+    noise = ndimage.gaussian_filter(_hash_noise(m.shape, scene, 3.0) - 0.5, sg)
+    noise /= 3 * 0.2887 / (2 * np.sqrt(np.pi) * sg)
+    out = out * (1 + 0.012 * fibre * np.clip(noise, -1, 1))[..., None]
+    a = m[..., None]
+    return np.clip(img * (1 - a) + np.clip(out, 0, 1) * a, 0, 1)
+
+
+def dome(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Scene) -> np.ndarray:
+    """Resin dome (epoxy / PU): a clear lens on the shape, its edge a rounded meniscus. The print
+    under it is slightly magnified near the edge (refraction), the surface mirrors the softbox
+    and strip light, and the steep edge reads darker with a thin bright line."""
+    ppm = scene.px_per_mm
+    height = float(p.get("height_mm", 1.5))
+    clarity = float(p.get("clarity", 0.95))
+    hl = float(p.get("highlight", 0.7))
+    ior = float(p.get("ior", 1.5))
+    inside = m > 0.5
+    d = ndimage.distance_transform_edt(inside) / ppm  # mm from the edge
+    edge = max(0.5, min(2.0, float(d.max()) * 0.6)) if inside.any() else 1.0
+    t = np.clip(d / edge, 0, 1)
+    h = height * np.sqrt(1 - (1 - t) ** 2)  # rounded meniscus, flat top
+    h = ndimage.gaussian_filter(h, max(0.6, 0.05 * ppm))
+    sx, sy = _slopes(h, ppm)
+    # Refraction: look through the lens a little toward its centre (magnifies at the edge).
+    k = (1 - 1 / ior) * h * ppm
+    yy, xx = np.mgrid[0 : m.shape[0], 0 : m.shape[1]].astype(np.float32)
+    under = np.dstack(
+        [
+            ndimage.map_coordinates(
+                img[..., c], [yy + k * sy, xx + k * sx], order=1, mode="nearest"
+            )
+            for c in range(3)
+        ]
+    )
+    if clarity < 1:
+        blur = ndimage.gaussian_filter(under, (max(0.0, (1 - clarity) * 3 * ppm * 0.1),) * 2 + (0,))
+        under = blur * np.array([1.0, 0.99, 1 - (1 - clarity) * 0.6], np.float32)
+    slope = np.hypot(sx, sy)
+    soft = reflection(m.shape, scene, sx, sy, 0.03)
+    band = strip(m, scene, sx, sy, 0.02)
+    spec = hl * (0.18 * soft + 0.6 * band)
+    dark_rim = np.clip(slope * 0.9, 0, 0.35)
+    out = under * (1 - dark_rim)[..., None] + spec[..., None]
+    a = m[..., None]
+    return np.clip(img * (1 - a) + np.clip(out, 0, 1) * a, 0, 1)
+
+
+RENDER = {
+    "metal": metal,
+    "pigment": pigment,
+    "holographic": holographic,
+    "relief": relief,
+    "clearcoat": clearcoat,
+    "uncoated": uncoated,
+    "dome": dome,
+}
 
 
 def render(
@@ -255,15 +412,11 @@ def render(
     relief, dome). Returns the image and the region any finish may have changed."""
     out = base.copy()
     changed = np.zeros(base.shape[:2], bool)
-    for f, params, m in sorted(layers, key=lambda x: placeholder.LAYER.get(x[0].model, 9)):
+    for f, params, m in sorted(layers, key=lambda x: LAYER.get(x[0].model, 9)):
         if not m.any():
             continue
-        if f.model in RENDER:
-            region = relief_region(m, params, scene) if f.model == "relief" else m > 0
-            new = RENDER[f.model](out, m, f, params, scene).astype(np.float32)
-        else:
-            new, region = placeholder.render(out, [(f, params, m)])
-            new = new.astype(np.float32)
+        region = relief_region(m, params, scene) if f.model == "relief" else m > 0
+        new = RENDER[f.model](out, m, f, params, scene).astype(np.float32)
         out = np.where(region[..., None], new, out)
         changed |= region
     return out, changed

@@ -269,7 +269,7 @@ export const studio = {
     missing: '(삭제된 요소)',
     assign: {
       title: '후가공 지정',
-      placeholder: '박(금·은·컬러), 형압, 라미네이팅·UV는 실제 사진 기준 재질로 보여요. 홀로그램·안료박·무코팅·에폭시는 아직 임시 미리보기예요.',
+      placeholder: '실제 후가공 사진에서 잰 값으로 재질을 그립니다. 더 사진 같게 하려면 아래 \'AI 사실감으로 저장\'을 쓰세요.',
       catalogLoading: '후가공 목록을 불러오는 중…',
       categories: '후가공 종류',
       subtypes: '세부 종류',
@@ -305,6 +305,28 @@ export const studio = {
         notSource: '이 버전에는 이미 후가공이 들어가 있어요. 후가공 없는 플랫 렌더를 선택하세요.',
         noVersion: '먼저 ② 플랫 렌더를 만들어 주세요.',
         started: '후가공 버전을 만들고 있어요. 완료되면 히스토리에 나타납니다.',
+      },
+      sweep: {
+        title: '빛 움직여 보기',
+        body: '조명을 움직이며 후가공 부분이 어떻게 반짝이는지 움직이는 그림으로 보여줘요.',
+        run: '빛 움직여 보기',
+        again: '다시 만들기',
+        loading: '빛을 움직이며 그리는 중… (최대 30초)',
+        alt: '빛을 움직인 후가공 미리보기',
+        light: (l: string) => `조명: ${l}`,
+      },
+      checks: {
+        title: '제조 점검',
+        counts: (errors: number, warnings: number) => `오류 ${errors} · 주의 ${warnings}`,
+        note: '인쇄소 기준은 업체마다 다를 수 있어요 (조사 기준값)',
+        none: '전체 점검에서 걸린 항목이 없어요.',
+        loading: '점검하는 중…',
+        nonBlocking: '오류가 있어도 저장은 할 수 있어요.',
+      },
+      plates: {
+        download: '판 파일 내려받기 (PDF·ZIP)',
+        body: '박·형압·UV 등 후가공별 판(검정 100%) PDF와 사양 JSON이 들어 있어요. 인쇄소에 전달용',
+        unsaved: '변경을 저장한 뒤 내려받을 수 있어요.',
       },
       applyTo: {
         assets: (n: number) => `선택한 요소 ${n}개에 적용`,
@@ -363,6 +385,12 @@ export const studio = {
       stale: '저장 후 미리보기를 갱신합니다',
       failed: '후가공 미리보기를 만들지 못했습니다.',
       alt: '후가공 미리보기',
+      light: '조명',
+      lights: { top: '위', raking: '측면광' },
+      lightTitles: {
+        top: '위에서 비추는 조명 — 실제로 보는 느낌',
+        raking: '옆에서 낮게 비추는 조명 — 형압·박의 높낮이가 잘 보여요',
+      },
     },
   },
   merge: {

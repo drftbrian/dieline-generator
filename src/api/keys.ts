@@ -10,6 +10,9 @@ export const keys = {
   assets: (id: string) => ['assets', id] as const,
   finishingCatalog: ['finishing-catalog'] as const,
   finishing: (id: string) => ['finishing', id] as const,
-  finishingPreview: (id: string, versionId: string, revision: number) =>
-    ['finishing-preview', id, versionId, revision] as const,
+  finishingPreview: (id: string, versionId: string, revision: number, light: string) =>
+    ['finishing-preview', id, versionId, revision, light] as const,
+  finishingSweep: (id: string, versionId: string, revision: number, light: string) =>
+    ['finishing-sweep', id, versionId, revision, light] as const,
+  finishingWarnings: (id: string, revision: number) => ['finishing-warnings', id, revision] as const,
 }
