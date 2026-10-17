@@ -158,13 +158,15 @@ class Lighting(BaseModel):
     margin: int = Field(12, ge=0, le=40)  # % of package size
 
 
-LookStyle = Literal["v1", "v2", "v3"]
+LookStyle = Literal["v1", "v2", "v3", "v4"]
+FoldPreset = Literal["low", "medium", "high"]
 
 
 class Look(BaseModel):
     """The fixed look of the flat render (step 2). Not user-editable.
 
-    ``style`` picks the board model: "v3" (v2 + finishing: edge tone, contact shadow on a
+    ``style`` picks the board model: "v4" (v3 with physical fold scores, opt-in), "v3" (v2 +
+    finishing: edge tone, contact shadow on a
     near-black ground, deeper scores, panel planes), "v2" (physical: paper fibres, cut-edge
     thickness, soft fold scores, overhead light) or "v1" (the first deterministic look).
     v1 and v2 are kept unchanged for comparison.
@@ -173,6 +175,7 @@ class Look(BaseModel):
     material: Material = Material()
     lighting: Lighting = Lighting()
     style: LookStyle = "v2"
+    fold_preset: FoldPreset = "medium"  # v4: physical fold score detail (render/folds.py)
 
 
 # Matte white board on solid black, top-down, soft even light (see prompts/flat_look.png).
@@ -181,7 +184,21 @@ FLAT_LOOK_V2 = Look(style="v2")
 # v3: the ground is near-black (#040404, reads as black) so the contact shadow, down to true
 # black at the cut, can actually be seen.
 FLAT_LOOK = Look(style="v3", lighting=Lighting(background_color="#040404", shadow_strength=60))
-FLAT_LOOKS: dict[str, Look] = {"v1": FLAT_LOOK_V1, "v2": FLAT_LOOK_V2, "v3": FLAT_LOOK}
+# v4: v3 with physical fold scores (height field, normals, soft key light). Not the default
+# until it passes review.
+FLAT_LOOK_V4 = FLAT_LOOK.model_copy(update={"style": "v4"})
+FLAT_LOOKS: dict[str, Look] = {
+    "v1": FLAT_LOOK_V1,
+    "v2": FLAT_LOOK_V2,
+    "v3": FLAT_LOOK,
+    "v4": FLAT_LOOK_V4,
+}
+
+
+def flat_look(style: str, fold_preset: str = "medium") -> Look:
+    """The look ``style``; for v4 with the given fold detail preset."""
+    look = FLAT_LOOKS[style]
+    return look.model_copy(update={"fold_preset": fold_preset}) if style == "v4" else look
 
 
 class Specification(BaseModel):

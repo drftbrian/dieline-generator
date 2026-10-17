@@ -199,7 +199,9 @@ class GenerateIn(BaseModel):
 
     mode: Literal["deterministic", "ai_appearance"] | None = None
     # Board look, overriding FLAT_LOOK: "v3" (default), or "v2" / "v1" to compare.
-    look: Literal["v1", "v2", "v3"] | None = None
+    look: Literal["v1", "v2", "v3", "v4"] | None = None
+    # v4 only: fold score detail, overriding FLAT_FOLD_PRESET.
+    fold_preset: Literal["low", "medium", "high"] | None = None
 
 
 MergeForm = Literal["auto", "flat", "folded"]
@@ -253,7 +255,8 @@ class VerifyOut(BaseModel):
     # Step 2 flat render (look.verify_flat): each gate, and what was measured.
     checks: dict[str, bool] | None = None
     mode: Literal["deterministic", "ai_appearance", "ai_material"] | None = None
-    look: Literal["v1", "v2", "v3"] | None = None  # the board look rendered
+    look: Literal["v1", "v2", "v3", "v4"] | None = None  # the board look rendered
+    fold_preset: Literal["low", "medium", "high"] | None = None  # v4: fold detail
     size: list[int] | None = None  # [w, h] px
     max_change: float | None = None  # ai_material: largest brightness change vs the source
     edge_sharpness: float | None = None  # ai_material: print edge energy vs the source (>=0.97)

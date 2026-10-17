@@ -124,14 +124,16 @@ def generate(pid: str, request: Request, body: GenerateIn | None = None):
         return replay
     mode = (body.mode if body else None) or get_settings().flat_render_mode
     look = (body.look if body else None) or get_settings().flat_look
+    fold = (body.fold_preset if body else None) or get_settings().flat_fold_preset
     _check_can_start(repo.project_or_404(pid), needs_model=mode == "ai_appearance")
     out = _start(
         pid,
         "generate",
-        lambda ctx, vid: pipeline.run_generate(ctx, vid, mode, look),
+        lambda ctx, vid: pipeline.run_generate(ctx, vid, mode, look, fold),
         kind="flat",
         reference_ids=[],
-        settings={"flat_mode": mode, "flat_look": look},
+        settings={"flat_mode": mode, "flat_look": look}
+        | ({"fold_preset": fold} if look == "v4" else {}),
     )
     remember(request, f"generate:{pid}", 202, out.model_dump())
     return out
@@ -282,6 +284,7 @@ def start_enhance(pid: str, vid: str, body: EnhanceIn, request: Request):
         settings={
             "flat_mode": "ai_material",
             "flat_look": source["settings_json"].get("flat_look", "v3"),
+            "fold_preset": source["settings_json"].get("fold_preset", "medium"),
             "source_version_id": vid,
             "strength": body.strength,
             "reference_id": body.reference_id,

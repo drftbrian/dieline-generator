@@ -733,7 +733,9 @@ export interface components {
             /** Mode */
             mode?: ("deterministic" | "ai_appearance") | null;
             /** Look */
-            look?: ("v1" | "v2" | "v3") | null;
+            look?: ("v1" | "v2" | "v3" | "v4") | null;
+            /** Fold Preset */
+            fold_preset?: ("low" | "medium" | "high") | null;
         };
         /** GenerateOut */
         GenerateOut: {
@@ -1257,7 +1259,9 @@ export interface components {
             /** Mode */
             mode?: ("deterministic" | "ai_appearance" | "ai_material") | null;
             /** Look */
-            look?: ("v1" | "v2" | "v3") | null;
+            look?: ("v1" | "v2" | "v3" | "v4") | null;
+            /** Fold Preset */
+            fold_preset?: ("low" | "medium" | "high") | null;
             /** Size */
             size?: number[] | null;
             /** Max Change */

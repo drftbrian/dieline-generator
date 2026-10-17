@@ -40,6 +40,7 @@ from app.render import look, shading
 from app.render.layers import Layers
 from app.services import brief, pipeline, specs
 from app.spec.models import FLAT_LOOKS
+from app.spec.models import flat_look as look_for
 from app.storage import repo
 
 PHASE = 2  # 1: broad light only; 2: + restrained paper appearance (detail map)
@@ -277,7 +278,10 @@ def run_enhance(ctx: JobContext, vid: str) -> dict:
     params = v["settings_json"]
     src = repo.get("versions", params["source_version_id"])
     spec = specs.load(repo.project_or_404(pid))
-    flat_look = FLAT_LOOKS[(src["settings_json"] or {}).get("flat_look") or "v3"]
+    src_settings = src["settings_json"] or {}
+    flat_look = look_for(
+        src_settings.get("flat_look") or "v3", src_settings.get("fold_preset") or "medium"
+    )
     strength = float(params["strength"])
     vdir = repo.project_dir(pid) / "versions"
     src_path = vdir / f"{src['id']}.png"

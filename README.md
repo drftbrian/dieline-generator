@@ -27,6 +27,7 @@ English summary: [아래 English 섹션](#english)을 보세요.
   - 칼선 외곽·구멍·검은 배경은 Figma 구조에서 정확히 나옵니다.
   - 같은 입력이면 **매번 똑같은 이미지**가 나옵니다. Gemini 키가 없어도 됩니다.
   - 판지 룩은 세 가지입니다 (`FLAT_LOOK`, 또는 API에서 `{"look": "v2"}`):
+    - **v4 (선택, 실물 접는선)**: v3에 접는선만 물리 모델로 바꾼 룩. Figma 접는선 위치로 높이 지도(가운데 눌린 홈 + 양옆 살짝 솟은 어깨, 약 2mm 안에서 평평해짐)를 만들고, 표면 방향(노멀)과 부드러운 키 라이트로 음영을 계산합니다. 빛을 향한 어깨는 은은하게 밝고 반대쪽은 살짝 어둡고, 홈은 약간 그늘집니다. 가로·세로·대각선 접는선이 각자 방향대로 빛을 받고, 교차점은 한 덩어리로 섞이고, 접는선 끝과 칼선 0.5mm 앞에서 자연스럽게 사라지며, 작은 날개 경첩은 조금 더 또렷합니다. 접는선 3mm 밖은 v3와 픽셀 단위로 같습니다. 세기는 `FLAT_FOLD_PRESET=low|medium|high` (기본 medium) 또는 API `{"look": "v4", "fold_preset": "high"}`.
     - **v3 (기본, 마감 패스)**: v2에 더해 아주 약한 톤 변화와 조금 더 고운 섬유결, 바깥 칼선의 가장자리 픽셀에만 어두운 웜그레이 판지 단면, 칼선에 딱 붙는 접지 그림자, 조금 더 깊은 접는선, 패널마다 ±0.5% 밝기 차이(판지 면이 살짝 다르게 놓인 느낌). 배경은 검정처럼 보이는 #040404이고, 그림자는 칼선 바로 옆에서 #000까지 내려갑니다.
     - **v2 (실물 판지)**: 가까이 확대해야 보이는 아주 고운 종이 섬유결(가로 방향), 칼선 바로 안쪽 0.3mm의 은은한 두께감, 부드럽게 눌린 접는선 홈, 위에서 고르게 비추는 소프트박스 조명. 배경 #000.
     - **v1 (첫 룩)**: 비교용으로 그대로 남겨 둔 첫 번째 결정적 룩.
@@ -46,6 +47,7 @@ English summary: [아래 English 섹션](#english)을 보세요.
 - 검사(`verify_flat` + 원본 대비 검사: 크기·외곽/구멍 동일, 밝기 변화 ≤6%, 글자 선명도, 원본 파일 불변)에 떨어지면 `ENHANCE_REJECTED`로 실패하고 **원본 v3가 그대로 결과**입니다.
 - 진단 파일: `<버전ID>_source.png`, `_blank.png`, `_raw.png`, `_registered.png`, `_light.png/.npy`, `_detail.png/.npy`, `_enhance.json` (모델·레퍼런스·강도·설정·검사).
 - 비교 이미지: `cd backend && uv run python scripts/enhance_compare.py <프로젝트ID> <보정버전ID> --out enhance.png`
+- v4 접는선 진단 (v3/v4 렌더, 접는선 마스크·높이·노멀·그림자·하이라이트 지도, 차이 히트맵, 400% 크롭): `cd backend && uv run python scripts/fold_diagnostics.py <프로젝트ID> --out-dir folds_qa`
 
 ### ③ 레퍼런스 합성
 
@@ -150,7 +152,8 @@ GEMINI_API_KEY=...      # Gemini: ③ 합성, ② AI 조명 모드 (기본 ②�
 FIGMA_TOKEN=...         # Figma 개인 액세스 토큰 (권한: file_content:read)
 FLAT_RENDER_MODE=deterministic   # 선택: ai_appearance 로 바꾸면 ②에 AI 조명을 더함
 FLAT_LONG_EDGE=4096              # 선택: ② 결과의 긴 변 픽셀 (1024~8192)
-FLAT_LOOK=v3                     # 선택: v2, v1 로 바꾸면 이전 판지 룩
+FLAT_LOOK=v3                     # 선택: v4(실물 접는선), v2, v1
+FLAT_FOLD_PRESET=medium          # 선택: v4 접는선 세기 low / medium / high
 ```
 
 - 빈 줄(`KEY=`)은 "설정 안 됨"으로 취급합니다.

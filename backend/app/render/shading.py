@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy import ndimage
 
+from app.render.folds import FOLD_PRESETS, fold_maps
 from app.render.layers import Layers
 from app.spec.models import FLAT_LOOK, Look
 
@@ -105,7 +106,7 @@ def paper_gain(L: Layers, look: Look = FLAT_LOOK) -> np.ndarray:
     Everything is multiplicative and the same on R, G and B, so it can only lighten or darken
     the print a little; it never blurs, moves or tints it.
     """
-    if look.style == "v3":
+    if look.style in ("v3", "v4"):
         return finishing_gain(L, look)
     if look.style == "v2":
         return physical_gain(L, look)
@@ -298,7 +299,10 @@ def finishing_gain(L: Layers, look: Look) -> np.ndarray:
     if m.texture > 0:
         tex = V3_FIBRE * fibre_texture(L, m) + tonal_variation(L)
         gain *= 1 + tex * (1 - INK_DAMP * print_edge_zone(L, m))
-    if m.crease_depth > 0:
+    if look.style == "v4":
+        # Physical fold scores: height field, normals and a soft key light (render/folds.py).
+        gain *= fold_maps(L, FOLD_PRESETS[look.fold_preset], li.light_angle).gain
+    elif m.crease_depth > 0:
         gain *= 1 + V3_SCORE * score_relief(L, m, light)
     gain *= 1 + edge_rim(L, m, light)
     gain *= 1 + panel_planes(L)
@@ -343,7 +347,7 @@ def render_parts(L: Layers, look: Look = FLAT_LOOK) -> Parts:
     print_rgb = print_surface(L, look.material)
     gain = paper_gain(L, look)
     board = np.clip(print_rgb * gain[..., None], 0, 1)
-    if look.style == "v3":
+    if look.style in ("v3", "v4"):
         background, shadow = finishing_ground(L, look)
     else:
         shadow = contact_shadow(L, look)
