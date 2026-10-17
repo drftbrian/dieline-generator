@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # light map only). The flat render is rasterized from the vectors at this long edge.
     flat_render_mode: Literal["deterministic", "ai_appearance"] = "deterministic"
     flat_long_edge: int = Field(4096, ge=1024, le=8192)
+    # Local study photos of real finishes, sent to the image model as material references by
+    # the optional "AI 사실감" step (never committed; missing folder = no photo references).
+    finish_reference_dir: Path = BACKEND_DIR / "image learning"
     # Board look of step 2: "v3" finishing pass (default); "v2", "v1" kept for comparison.
     flat_look: Literal["v1", "v2", "v3", "v4"] = "v3"
     # v4 only: physical fold score detail ("medium" is the recommended setting).

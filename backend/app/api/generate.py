@@ -13,6 +13,7 @@ from app.api.schemas import (
     EnhanceIn,
     EnhanceInterpretIn,
     EnhanceInterpretOut,
+    FinishIn,
     GenerateIn,
     GenerateOut,
     JobOut,
@@ -20,9 +21,10 @@ from app.api.schemas import (
 )
 from app.config import get_settings
 from app.errors import ApiError
+from app.finishing import spec as fspec
 from app.jobs import runner
 from app.jobs.runner import Cancelled, JobContext
-from app.services import enhance, enhance_prompt, merge, pipeline, specs
+from app.services import enhance, enhance_prompt, finish_realism, merge, pipeline, specs
 from app.storage import repo
 
 router = APIRouter(tags=["generate"])
@@ -44,7 +46,7 @@ def _check_can_start(project: dict, needs_model: bool = True) -> None:
             hint="backend/.env에 GEMINI_API_KEY를 추가하세요.",
         )
     if (
-        runner.active_count("generate", "merge", "enhance")
+        runner.active_count("generate", "merge", "enhance", "finish")
         >= get_settings().max_concurrent_generations
     ):
         raise ApiError(
@@ -311,6 +313,61 @@ def start_enhance(pid: str, vid: str, body: EnhanceIn, request: Request):
         },
     )
     remember(request, f"enhance:{pid}:{vid}", 202, out.model_dump())
+    return out
+
+
+@router.post("/projects/{pid}/versions/{vid}/finish", response_model=GenerateOut, status_code=202)
+def start_finish(pid: str, vid: str, body: FinishIn, request: Request):
+    """Save a flat render with a finishing revision baked in as a new version (usable in ③),
+    optionally with "AI 사실감" on the foil / relief / spot-UV areas. The source render and the
+    finishing specification are never changed."""
+    if replay := idempotent_replay(request, f"finish:{pid}:{vid}"):
+        return replay
+    project = repo.project_or_404(pid)
+    v = repo.get("versions", vid)
+    settings = (v or {}).get("settings_json") or {}
+    if (
+        v is None
+        or v["project_id"] != pid
+        or v["deleted_at"]
+        or v["status"] != "done"
+        or (v.get("kind") or "flat") != "flat"
+        or is_legacy(v)
+        or settings.get("flat_mode") not in ("deterministic", "ai_material")
+    ):
+        raise ApiError(
+            409,
+            "FINISH_SOURCE_INVALID",
+            "후가공 버전은 완료된 ② 플랫 렌더에서만 만들 수 있습니다.",
+            hint="후가공이 없는 플랫 렌더 버전을 선택해주세요.",
+        )
+    fin = fspec.load(pid) if body.revision is None else fspec.load_revision(pid, body.revision)
+    if not any(a.enabled for a in fin.assignments):
+        raise ApiError(
+            409,
+            "FINISHING_EMPTY",
+            "적용된 후가공이 없습니다.",
+            hint="후가공을 하나 이상 적용한 뒤 저장해주세요.",
+        )
+    _check_can_start(project, needs_model=body.ai)
+    out = _start(
+        pid,
+        "finish",
+        finish_realism.run_finish,
+        kind="flat",
+        reference_ids=[],
+        flat_version_id=vid,
+        settings={
+            "flat_mode": "finished",
+            "flat_look": settings.get("flat_look", "v3"),
+            "fold_preset": settings.get("fold_preset", "medium"),
+            "source_version_id": vid,
+            "finishing_revision": fin.revision,
+            "ai": body.ai,
+            "strength": body.strength,
+        },
+    )
+    remember(request, f"finish:{pid}:{vid}", 202, out.model_dump())
     return out
 
 

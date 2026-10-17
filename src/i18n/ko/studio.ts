@@ -71,9 +71,10 @@ export const studio = {
   },
   generation: {
     running: (what: string, elapsed: string) => `${what} 생성 중 · ${elapsed}`,
-    kinds: { flat: '플랫 렌더', merge: '레퍼런스 합성', enhance: 'AI 재질 보정' },
+    kinds: { flat: '플랫 렌더', merge: '레퍼런스 합성', enhance: 'AI 재질 보정', finish: '후가공 버전' },
     stages: {
       render: '원본 인쇄 렌더 중',
+      compose: '후가공 입히는 중',
       prepare: '상자·레퍼런스 준비 중',
       model: '이미지 모델 생성 중',
       register: 'AI 결과를 상자 위치에 맞추는 중',
@@ -91,6 +92,8 @@ export const studio = {
     flat: '플랫',
     merge: '합성',
     enhanced: 'AI 보정',
+    finished: '후가공',
+    finishedAi: '후가공 AI',
     legacy: '이전',
     legacyTitle: '이전 방식으로 만든 결과 — 볼 수는 있지만 합성 원본으로는 쓸 수 없어요',
     running: '생성 중',
@@ -290,6 +293,19 @@ export const studio = {
         both: '선택한 요소 또는 시트·패널 면 전체에 적용할 수 있습니다.',
       } as Record<string, string>,
       apply: '후가공 적용 / Apply Finishing',
+      save: {
+        title: '후가공 버전으로 저장',
+        body: '지금 적용된 후가공을 입힌 플랫 렌더를 새 버전으로 저장합니다. ③ 레퍼런스 합성에도 쓸 수 있어요. 원본 렌더는 그대로 남습니다.',
+        plain: '후가공 버전 저장',
+        ai: 'AI 사실감으로 저장',
+        aiNote:
+          'Gemini가 실제 후가공 사진을 참고해 박·형압·부분 UV 영역 안의 빛과 질감만 다듬어요. 모양·글자·색과 영역 밖은 그대로예요. 1~2분 걸리고 생성 비용이 들어요.',
+        strength: 'AI 사실감 강도',
+        unsaved: '후가공 변경을 저장하는 중이에요. 잠시 후 다시 시도하세요.',
+        notSource: '이 버전에는 이미 후가공이 들어가 있어요. 후가공 없는 플랫 렌더를 선택하세요.',
+        noVersion: '먼저 ② 플랫 렌더를 만들어 주세요.',
+        started: '후가공 버전을 만들고 있어요. 완료되면 히스토리에 나타납니다.',
+      },
       applyTo: {
         assets: (n: number) => `선택한 요소 ${n}개에 적용`,
         sheet: '전체 시트에 적용',

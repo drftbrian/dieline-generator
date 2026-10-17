@@ -26,6 +26,7 @@ STAGES = {
     "generate": ["render", "model", "composite", "verify"],
     "merge": ["prepare", "model", "composite", "verify"],
     "enhance": ["prepare", "model", "register", "extract", "composite", "verify"],
+    "finish": ["compose", "model", "verify"],
 }
 
 

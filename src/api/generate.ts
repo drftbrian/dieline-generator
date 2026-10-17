@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { keys } from './keys'
-import type { EnhanceIn, EnhanceInterpretOut, GenerateOut, MergeIn } from './types'
+import type { EnhanceIn, EnhanceInterpretOut, FinishIn, GenerateOut, MergeIn } from './types'
 
 /** ② 플랫 렌더: no options — the look is fixed on the server. */
 export function useStartFlat(projectId: string) {
@@ -35,6 +35,20 @@ export function useStartEnhance(projectId: string) {
       api<GenerateOut>(`/projects/${projectId}/versions/${sourceId}/enhance`, {
         method: 'POST',
         json: { strength: 0.6, ...body },
+        idempotent: true,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.history(projectId) }),
+  })
+}
+
+/** 후가공 버전: a flat render with the saved finishes baked in, optionally with AI 사실감. */
+export function useStartFinish(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ sourceId, ...body }: FinishIn & { sourceId: string }) =>
+      api<GenerateOut>(`/projects/${projectId}/versions/${sourceId}/finish`, {
+        method: 'POST',
+        json: body,
         idempotent: true,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.history(projectId) }),

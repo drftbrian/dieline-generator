@@ -9,8 +9,13 @@ export const isMergeSource = (v: Version) => v.kind === 'flat' && v.status === '
 export const isEnhanceable = (v: Version) =>
   v.kind === 'flat' && v.status === 'done' && !v.legacy && !v.enhancement && v.verify?.mode === 'deterministic'
 
-/** What a version is, for labels: 플랫 렌더 / AI 재질 보정 / 레퍼런스 합성. */
-export const kindLabel = (v: Version) => ko.studio.generation.kinds[v.enhancement ? 'enhance' : v.kind]
+/** A flat render the finishes can be baked into (not one that already has them). */
+export const isFinishSource = (v: Version) =>
+  v.kind === 'flat' && v.status === 'done' && !v.legacy && !v.finishing && !!v.frame
+
+/** What a version is, for labels: 플랫 렌더 / AI 재질 보정 / 후가공 버전 / 레퍼런스 합성. */
+export const kindLabel = (v: Version) =>
+  ko.studio.generation.kinds[v.finishing ? 'finish' : v.enhancement ? 'enhance' : v.kind]
 
 export function useVersions(projectId: string) {
   const history = useHistory(projectId)

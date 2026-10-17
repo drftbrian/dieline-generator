@@ -15,13 +15,10 @@ from pydantic import BaseModel
 from app.api import assets as assets_api
 from app.errors import ApiError
 from app.finishing import assets as fa
-from app.finishing import catalog, masks
+from app.finishing import catalog, compose
 from app.finishing import spec as fspec
 from app.render import shading
-from app.render.finishing import material
-from app.render.layers import frame, structure_key
-from app.services import pipeline
-from app.spec.models import FLAT_LOOK
+from app.render.layers import structure_key
 from app.storage import repo
 
 router = APIRouter(tags=["finishing"])
@@ -122,44 +119,6 @@ def save_finishing(pid: str, body: FinishingSaveIn) -> fspec.FinishingSpec:
 
 _cache: OrderedDict[tuple, tuple[bytes, dict]] = OrderedDict()
 _lock = threading.Lock()
-CROP_PAD_MM = 2.5  # around the finish regions: room for relief shoulders and blurs
-
-
-def target_mask(
-    pid, spec, t: fspec.Target, tree: dict, sil: np.ndarray, svgs: dict, long_edge: int, scale_of
-) -> np.ndarray | None:
-    """The target's mask on the version's frame (``sil`` = the board at that resolution)."""
-    if t.kind == "sheet":
-        return (sil > 0.001).astype(np.float32) * np.clip(sil, 0, 1)
-    if t.kind == "panel":
-        p = next((p for p in spec.panels if p.id == t.id), None)
-        if p is None:
-            return None
-        (ox, oy), scale = scale_of
-        x0, y0, x1, y1 = (
-            int(round((v - o) * scale)) for v, o in zip(p.bbox, (ox, oy, ox, oy), strict=True)
-        )
-        m = np.zeros_like(sil)
-        m[max(0, y0) : max(0, y1), max(0, x0) : max(0, x1)] = 1
-        return m * np.clip(sil, 0, 1)
-    asset = tree.get(t.id or "")
-    if asset is None:
-        return None
-    svg = None
-    if asset.get("exact"):
-        svg = svgs.get(asset["id"])
-        if svg is None:
-            return None  # never guessed from the printed ink for Figma assets
-    return masks.asset_mask(
-        pid,
-        spec,
-        asset,
-        long_edge,
-        sil,
-        svg,
-        structure_key(spec),
-        lambda: pipeline.get_layers(pid, spec, long_edge, FLAT_LOOK.lighting.margin),
-    )
 
 
 def _version(pid: str, vid: str) -> dict:
@@ -169,6 +128,7 @@ def _version(pid: str, vid: str) -> dict:
         or v["project_id"] != pid
         or v["status"] != "done"
         or (v.get("kind") or "flat") != "flat"
+        or ((v.get("settings_json") or {}).get("flat_mode") == "finished")
     ):
         raise ApiError(
             404, "VERSION_NOT_FOUND", "후가공 미리보기에 쓸 플랫 렌더를 찾을 수 없습니다."
@@ -179,62 +139,18 @@ def _version(pid: str, vid: str) -> dict:
 def overlay(pid: str, spec, vid: str, fin: fspec.FinishingSpec) -> tuple[bytes, dict]:
     """RGBA PNG of only the finished pixels, at the version image's own resolution and over
     its own pixels (so the canvas keeps the full-resolution render everywhere else), cropped to
-    the changed area. Returns the PNG and the crop's frame in page pt."""
-    path = repo.project_dir(pid) / "versions" / f"{vid}.png"
-    if not path.exists():
-        raise ApiError(
-            404, "VERSION_NOT_FOUND", "후가공 미리보기에 쓸 플랫 렌더를 찾을 수 없습니다."
-        )
-    img = np.asarray(Image.open(path).convert("RGB"))
-    h, w = img.shape[:2]
-    long_edge = max(h, w)
-    raster, crop = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
-    if (raster.h, raster.w) != (h, w):
-        raise ApiError(
-            409,
-            "VERSION_STALE",
-            "이 플랫 렌더는 지금 구조와 맞지 않습니다.",
-            hint="플랫 렌더를 다시 생성한 뒤 후가공을 확인해주세요.",
-        )
-    sil = masks.board(spec, long_edge, structure_key(spec))
-    _, tree_list = fa.project_assets(pid, spec)
-    tree = {a["id"]: a for a in tree_list}
-    asset_ids = [
-        t.id for a in fin.assignments if a.enabled for t in a.targets if t.kind == "asset" and t.id
-    ]
-    svgs = fa.node_svgs(pid, [i for i in asset_ids if tree.get(i, {}).get("exact")])
-    stack = []
-    for a in sorted(fin.assignments, key=lambda a: a.order):
-        if not a.enabled:
-            continue
-        ms = [
-            target_mask(pid, spec, t, tree, sil, svgs, long_edge, (raster.origin, raster.scale))
-            for t in a.targets
-        ]
-        ms = [m for m in ms if m is not None]
-        if ms:
-            stack.append((catalog.finish(a.finish), a.params, np.maximum.reduce(ms)))
-    ox, oy = raster.origin
-    union = np.zeros((h, w), bool)
-    for _, _, m in stack:
-        union |= m > 0
-    ys, xs = np.nonzero(union)
-    if not ys.size:
-        buf = io.BytesIO()
+    the changed area. Returns the PNG and where it sits (page pt and image pixels)."""
+    c = compose.compose(pid, spec, vid, fin)
+    h, w = c.image.shape[:2]
+    ox, oy = c.origin
+    buf = io.BytesIO()
+    if c.box is None:
         Image.new("RGBA", (1, 1), (0, 0, 0, 0)).save(buf, "PNG")
         return buf.getvalue(), {"origin": (ox, oy), "size": (0.0, 0.0), "px": (0, 0, 0, 0, w, h)}
-    # Work on the finishes' bounding box only (plus room for the relief shoulder).
-    px_per_mm = raster.scale / spec.scale.mm_per_pt
-    pad = int(CROP_PAD_MM * px_per_mm) + 8
-    y0, x0 = max(0, int(ys.min()) - pad), max(0, int(xs.min()) - pad)
-    y1, x1 = min(h, int(ys.max()) + 1 + pad), min(w, int(xs.max()) + 1 + pad)
-    base = img[y0:y1, x0:x1].astype(np.float32) / 255
-    scene = material.Scene(px_per_mm=px_per_mm, offset=(y0, x0), full=(h, w))
-    out, changed = material.render(base, [(f, p, m[y0:y1, x0:x1]) for f, p, m in stack], scene)
-    rgba = np.dstack([shading.to8(out), np.where(changed, 255, 0).astype(np.uint8)])
-    buf = io.BytesIO()
+    y0, x0, y1, x1 = c.box
+    rgba = np.dstack([shading.to8(c.finished), np.where(c.changed, 255, 0).astype(np.uint8)])
     Image.fromarray(rgba, "RGBA").save(buf, "PNG", compress_level=1)
-    s = raster.scale
+    s = c.scale
     return buf.getvalue(), {
         "origin": (ox + x0 / s, oy + y0 / s),
         "size": ((x1 - x0) / s, (y1 - y0) / s),

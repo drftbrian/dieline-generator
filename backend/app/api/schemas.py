@@ -100,7 +100,7 @@ class JobStage(BaseModel):
 class JobOut(BaseModel):
     id: str
     project_id: str
-    type: Literal["analyze", "render", "generate", "merge", "enhance"]
+    type: Literal["analyze", "render", "generate", "merge", "enhance", "finish"]
     status: Literal["pending", "running", "done", "failed", "cancelled"]
     progress: float
     stages: list[JobStage]
@@ -229,6 +229,16 @@ class EnhanceIn(BaseModel):
     maps_from: str | None = None
 
 
+class FinishIn(BaseModel):
+    """Save a flat render with a finishing revision baked in, as a new version."""
+
+    revision: int | None = None  # finishing revision (default: the current one)
+    # "AI 사실감": the image model re-photographs each foil / relief / spot-UV area from real
+    # photos of that finish; only a bounded light/texture map inside the finish is kept.
+    ai: bool = False
+    strength: float = Field(0.7, ge=0, le=1)
+
+
 class EnhanceInterpretIn(BaseModel):
     user_prompt: str = Field("", max_length=1000)
 
@@ -265,6 +275,16 @@ class EnhancementOut(BaseModel):
     source_image_url: str
 
 
+class FinishedOut(BaseModel):
+    """A flat render with finishes baked in (made from another flat version)."""
+
+    source_version_id: str
+    finishing_revision: int
+    ai: bool
+    strength: float
+    source_image_url: str
+
+
 class GenerateOut(BaseModel):
     job_id: str
     version_id: str
@@ -287,7 +307,7 @@ class VerifyOut(BaseModel):
     colour_delta_e_max: float | None = None  # worst Figma colour (CIE76, <=6)
     # Step 2 flat render (look.verify_flat): each gate, and what was measured.
     checks: dict[str, bool] | None = None
-    mode: Literal["deterministic", "ai_appearance", "ai_material"] | None = None
+    mode: Literal["deterministic", "ai_appearance", "ai_material", "finished"] | None = None
     look: Literal["v1", "v2", "v3", "v4"] | None = None  # the board look rendered
     fold_preset: Literal["low", "medium", "high"] | None = None  # v4: fold detail
     size: list[int] | None = None  # [w, h] px
@@ -321,6 +341,7 @@ class VersionOut(BaseModel):
     form: Literal["flat", "folded"] | None = None  # merge: the form used
     # A post-render AI material enhancement of a deterministic flat render (else None).
     enhancement: EnhancementOut | None = None
+    finishing: FinishedOut | None = None  # finishes baked in (else None)
     verify: VerifyOut | None
     frame: FrameOut | None
     error: ErrorBody | None

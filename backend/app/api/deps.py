@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.ai.models import IMAGE_MODEL
 from app.api.schemas import (
     EnhancementOut,
+    FinishedOut,
     ProjectOut,
     ReferenceAnalysis,
     ReferenceOut,
@@ -103,7 +104,11 @@ def version_out(v: dict) -> VersionOut:
         legacy=is_legacy(v),
         status=v["status"],
         provider_label=(
-            "코드 렌더 (AI 없음)"
+            "후가공 · 코드 렌더"
+            if settings.get("flat_mode") == "finished" and not settings.get("ai")
+            else f"{model.label} · 후가공 AI 사실감"
+            if model and settings.get("flat_mode") == "finished"
+            else "코드 렌더 (AI 없음)"
             if settings.get("flat_mode") == "deterministic"
             else f"{model.label} · AI 재질 보정"
             if model and settings.get("flat_mode") == "ai_material"
@@ -127,6 +132,15 @@ def version_out(v: dict) -> VersionOut:
             notes=settings.get("notes") or [],
         )
         if settings.get("flat_mode") == "ai_material"
+        else None,
+        finishing=FinishedOut(
+            source_version_id=settings["source_version_id"],
+            finishing_revision=settings["finishing_revision"],
+            ai=bool(settings.get("ai")),
+            strength=settings.get("strength", 0.0),
+            source_image_url=f"/api/projects/{pid}/versions/{settings['source_version_id']}/image",
+        )
+        if settings.get("flat_mode") == "finished"
         else None,
         verify=v.get("verify_json"),
         frame=v.get("frame_json"),

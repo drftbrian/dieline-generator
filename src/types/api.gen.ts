@@ -434,6 +434,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/versions/{vid}/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Finish
+         * @description Save a flat render with a finishing revision baked in as a new version (usable in ③),
+         *     optionally with "AI 사실감" on the foil / relief / spot-UV areas. The source render and the
+         *     finishing specification are never changed.
+         */
+        post: operations["start_finish_api_projects__pid__versions__vid__finish_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/enhance/interpret": {
         parameters: {
             query?: never;
@@ -650,8 +672,8 @@ export interface paths {
         };
         /**
          * Finishing Preview
-         * @description Transparent PNG of the finished pixels of a flat version (placeholder effects in this
-         *     milestone), at the version's full resolution. Lay it over the version image at the frame the
+         * @description Transparent PNG of the finished pixels of a flat version (material renderers; holographic,
+         *     pigment foil, uncoated and dome are still placeholders), at the version's full resolution. Lay it over the version image at the frame the
          *     headers give (page pt); everywhere it is transparent the version image is unchanged.
          */
         get: operations["finishing_preview_api_projects__pid__finishing_preview_get"];
@@ -1064,6 +1086,24 @@ export interface components {
             /** Configured */
             configured: boolean;
         };
+        /**
+         * FinishIn
+         * @description Save a flat render with a finishing revision baked in, as a new version.
+         */
+        FinishIn: {
+            /** Revision */
+            revision?: number | null;
+            /**
+             * Ai
+             * @default false
+             */
+            ai: boolean;
+            /**
+             * Strength
+             * @default 0.7
+             */
+            strength: number;
+        };
         /** FinishOut */
         FinishOut: {
             /** Id */
@@ -1086,6 +1126,22 @@ export interface components {
             note: string;
             /** Params */
             params: components["schemas"]["ParamOut"][];
+        };
+        /**
+         * FinishedOut
+         * @description A flat render with finishes baked in (made from another flat version).
+         */
+        FinishedOut: {
+            /** Source Version Id */
+            source_version_id: string;
+            /** Finishing Revision */
+            finishing_revision: number;
+            /** Ai */
+            ai: boolean;
+            /** Strength */
+            strength: number;
+            /** Source Image Url */
+            source_image_url: string;
         };
         /** FinishingSaveIn */
         FinishingSaveIn: {
@@ -1168,7 +1224,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "analyze" | "render" | "generate" | "merge" | "enhance";
+            type: "analyze" | "render" | "generate" | "merge" | "enhance" | "finish";
             /**
              * Status
              * @enum {string}
@@ -1702,7 +1758,7 @@ export interface components {
                 [key: string]: boolean;
             } | null;
             /** Mode */
-            mode?: ("deterministic" | "ai_appearance" | "ai_material") | null;
+            mode?: ("deterministic" | "ai_appearance" | "ai_material" | "finished") | null;
             /** Look */
             look?: ("v1" | "v2" | "v3" | "v4") | null;
             /** Fold Preset */
@@ -1763,6 +1819,7 @@ export interface components {
             /** Form */
             form?: ("flat" | "folded") | null;
             enhancement?: components["schemas"]["EnhancementOut"] | null;
+            finishing?: components["schemas"]["FinishedOut"] | null;
             verify: components["schemas"]["VerifyOut"] | null;
             frame: components["schemas"]["app__api__schemas__FrameOut"] | null;
             error: components["schemas"]["ErrorBody"] | null;
@@ -2721,6 +2778,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EnhanceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_finish_api_projects__pid__versions__vid__finish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinishIn"];
             };
         };
         responses: {

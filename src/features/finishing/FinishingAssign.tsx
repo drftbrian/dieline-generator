@@ -15,6 +15,7 @@ import {
 } from '@/stores/useFinishingStore'
 import { AppliedList } from './AppliedList'
 import { FinishPicker } from './FinishPicker'
+import { FinishSave } from './FinishSave'
 
 const t = ko.studio.finishing.assign
 
@@ -55,6 +56,7 @@ export function FinishingAssign({
         <>
           <FinishPicker catalog={catalog.data} selected={selected} panels={panels} />
           <AppliedList projectId={projectId} catalog={catalog.data} byId={byId} panels={panels} selected={selected} />
+          <FinishSave projectId={projectId} />
         </>
       )}
     </div>

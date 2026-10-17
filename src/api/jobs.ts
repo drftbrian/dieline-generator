@@ -13,6 +13,7 @@ const INVALIDATES: Record<Job['type'], (pid: string) => ReadonlyArray<readonly u
   generate: (pid) => [keys.history(pid), keys.project(pid), keys.projects],
   merge: (pid) => [keys.history(pid), keys.project(pid), keys.projects],
   enhance: (pid) => [keys.history(pid), keys.project(pid), keys.projects],
+  finish: (pid) => [keys.history(pid), keys.project(pid), keys.projects],
 }
 
 /** Poll a job every second until it finishes, then refresh what it changed. */

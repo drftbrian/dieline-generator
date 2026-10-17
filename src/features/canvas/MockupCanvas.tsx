@@ -66,7 +66,8 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
   const hasFinishes = useFinishingStore((s) => s.projectId === pid && s.saved.assignments.some((a) => a.enabled))
   const finishPending = useFinishingStore((s) => s.projectId === pid && (s.status === 'saving' || isDirty(s)))
   const finishView = useCanvasStore((s) => s.finishView)
-  const finishable = !!frame && !!imageSize
+  // A 후가공 버전 already has its finishes in the image: no overlay on top of it.
+  const finishable = !!frame && !!imageSize && !version?.finishing
   const finishOn = finishable && hasFinishes && finishView !== 'original'
   const preview = useFinishingPreview(pid, version?.id ?? null, savedRevision, finishOn)
   const previewUrl = useObjectUrl(finishOn ? preview.data?.blob : null)

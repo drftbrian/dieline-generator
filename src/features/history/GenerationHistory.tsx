@@ -101,7 +101,9 @@ function HistoryCard({
   onDelete: () => void
 }) {
   const verifyFailed = v.status === 'done' && v.verify && !v.verify.match
-  const badge = v.enhancement
+  const badge = v.finishing
+    ? { text: v.finishing.ai ? t.finishedAi : t.finished, tone: 'bg-amber-50 text-amber-800' }
+    : v.enhancement
     ? { text: t.enhanced, tone: 'bg-violet-50 text-violet-700' }
     : v.kind === 'flat'
       ? { text: t.flat, tone: 'bg-canvas text-ink-muted' }
