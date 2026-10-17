@@ -199,6 +199,12 @@ def test_import_by_link(client, fake_figma):
     assert {layer["name"] for layer in project["figma"]["layers"]} >= {"redline"}
     spec = client.get(f"/api/projects/{pid}/specification").json()
     assert spec["separations"]["cut"]["evidence"] == ["Figma 레이어 'redline'"]
+    # The import also keeps the node tree for finishing selection (stable Figma ids).
+    from app.storage import repo
+
+    assert (repo.project_dir(pid) / "figma_assets.json").exists()
+    assets = client.get(f"/api/projects/{pid}/assets").json()
+    assert assets["source"] == "figma"
 
 
 def test_import_without_token(client):

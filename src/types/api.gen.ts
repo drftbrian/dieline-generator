@@ -527,6 +527,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assets */
+        get: operations["list_assets_api_projects__pid__assets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/assets/{aid}/mask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Asset Mask Png
+         * @description The asset's mask as a transparent PNG over the frame (``FrameOut``): ``outline`` for the
+         *     selection highlight, ``fill`` for a tinted fill.
+         */
+        get: operations["asset_mask_png_api_projects__pid__assets__aid__mask_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/assets/hit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hit
+         * @description Selectable assets under a page point, by their exact masks: innermost (deepest, then
+         *     smallest) first, so repeated clicks / cycling can reach parents and overlapped assets.
+         */
+        post: operations["hit_api_projects__pid__assets_hit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -578,6 +637,45 @@ export interface components {
             detail: {
                 [key: string]: unknown;
             };
+        };
+        /** AssetOut */
+        AssetOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Type */
+            type: string;
+            /** Kind */
+            kind: string;
+            /** Parent */
+            parent: string | null;
+            /** Children */
+            children: string[];
+            /** Depth */
+            depth: number;
+            /** Bbox */
+            bbox: number[];
+            /** Panel */
+            panel: string | null;
+            /** Selectable */
+            selectable: boolean;
+            /** Technical */
+            technical: boolean;
+            /** Exact */
+            exact: boolean;
+            /** Text */
+            text?: string | null;
+            /** Color */
+            color?: string | null;
+        };
+        /** AssetsOut */
+        AssetsOut: {
+            /** Source */
+            source: string;
+            frame: components["schemas"]["app__api__assets__FrameOut"];
+            /** Assets */
+            assets: components["schemas"]["AssetOut"][];
         };
         /** Body_upload_reference_api_projects__pid__references_post */
         Body_upload_reference_api_projects__pid__references_post: {
@@ -843,19 +941,6 @@ export interface components {
             /** Configured */
             configured: boolean;
         };
-        /** FrameOut */
-        FrameOut: {
-            /** Origin */
-            origin: [
-                number,
-                number
-            ];
-            /** Size */
-            size: [
-                number,
-                number
-            ];
-        };
         /**
          * GenerateIn
          * @description Step 2. The look is fixed; ``mode`` overrides the server's FLAT_RENDER_MODE:
@@ -887,6 +972,18 @@ export interface components {
         HistoryOut: {
             /** Versions */
             versions: components["schemas"]["VersionOut"][];
+        };
+        /** HitIn */
+        HitIn: {
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+        };
+        /** HitOut */
+        HitOut: {
+            /** Candidates */
+            candidates: string[];
         };
         /** JobOut */
         JobOut: {
@@ -1460,7 +1557,7 @@ export interface components {
             form?: ("flat" | "folded") | null;
             enhancement?: components["schemas"]["EnhancementOut"] | null;
             verify: components["schemas"]["VerifyOut"] | null;
-            frame: components["schemas"]["FrameOut"] | null;
+            frame: components["schemas"]["app__api__schemas__FrameOut"] | null;
             error: components["schemas"]["ErrorBody"] | null;
             /** Job Id */
             job_id: string | null;
@@ -1472,6 +1569,30 @@ export interface components {
             download_url: string | null;
             /** Created At */
             created_at: string;
+        };
+        /** FrameOut */
+        app__api__assets__FrameOut: {
+            /** Origin */
+            origin: number[];
+            /** Size */
+            size: number[];
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+        };
+        /** FrameOut */
+        app__api__schemas__FrameOut: {
+            /** Origin */
+            origin: [
+                number,
+                number
+            ];
+            /** Size */
+            size: [
+                number,
+                number
+            ];
         };
     };
     responses: never;
@@ -2044,7 +2165,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FrameOut"];
+                    "application/json": components["schemas"]["app__api__schemas__FrameOut"];
                 };
             };
             /** @description Default Response */
@@ -2597,6 +2718,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_assets_api_projects__pid__assets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetsOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    asset_mask_png_api_projects__pid__assets__aid__mask_get: {
+        parameters: {
+            query?: {
+                style?: string;
+                color?: string;
+            };
+            header?: never;
+            path: {
+                pid: string;
+                aid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    hit_api_projects__pid__assets_hit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HitIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HitOut"];
                 };
             };
             /** @description Default Response */

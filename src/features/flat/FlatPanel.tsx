@@ -6,6 +6,7 @@ import { JobStages, StepPanel, VerifyResult, VersionError } from '@/features/stu
 import type { StudioRegionProps } from '@/features/studio/types'
 import { isEnhanceable, isMergeSource, pick, useVersions } from '@/features/studio/versions'
 import { ko } from '@/i18n/ko'
+import { FinishingSection } from '@/features/finishing/FinishingSection'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { EnhanceFailure, EnhanceResult, EnhanceStart } from './EnhancePanel'
 
@@ -20,6 +21,7 @@ export function FlatPanel({ project }: StudioRegionProps) {
   const start = useStartFlat(pid)
   const { versions, flats } = useVersions(pid)
   const flatId = useCanvasStore((s) => s.flatId)
+  const onFlat = useCanvasStore((s) => s.view === 'flat')
   const selected = pick(flats, flatId)
   const all = versions.filter((v) => v.kind === 'flat')
   const running = all.filter((v) => v.status === 'running')
@@ -68,6 +70,7 @@ export function FlatPanel({ project }: StudioRegionProps) {
               {t.useForMerge}
             </Button>
           </div>
+          {onFlat && <FinishingSection projectId={pid} hasFrame={!!selected.frame} />}
           {selected.enhancement ? (
             <EnhanceResult
               key={selected.id}

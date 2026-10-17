@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 
 from fastapi import APIRouter, Request
 
@@ -12,11 +13,13 @@ from app.api.schemas import FigmaImportIn, FigmaStatus, SourceOut, UploadOut
 from app.config import get_settings
 from app.figma import client as figma
 from app.figma.layers import extract_content, extract_shapes, summarize
+from app.finishing import assets as finishing_assets
 from app.jobs import runner
 from app.pdf.validate import validate_pdf
 from app.services import pipeline
 from app.storage import repo
 
+log = logging.getLogger(__name__)
 router = APIRouter(tags=["figma"])
 
 
@@ -72,6 +75,10 @@ def _import(link: figma.FigmaLink) -> UploadOut:
     (repo.project_dir(pid) / "figma_content.json").write_text(
         json.dumps(extract_content(frame.document), ensure_ascii=False)
     )
+    try:  # selectable assets for finishing; rebuilt on demand if this fails
+        finishing_assets.save_tree(pid, frame.document)
+    except Exception:  # noqa: BLE001 - never block an import on the finishing tree
+        log.warning("finishing asset tree not saved for %s", pid, exc_info=True)
     job = runner.create(pid, "analyze")
     runner.submit(job, lambda ctx: pipeline.run_analyze(ctx, None))
     return UploadOut(project=project_out(repo.project_or_404(pid)), job_id=job["id"])

@@ -1,11 +1,16 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { useAssets } from '@/api/assets'
 import { sourceFileUrl } from '@/api/source'
 import { Spinner } from '@/components/ui/Spinner'
 import type { StudioRegionProps } from '@/features/studio/types'
 import { useShownVersion } from '@/features/studio/useShownVersion'
 import { useVersions } from '@/features/studio/versions'
 import { ko } from '@/i18n/ko'
+import { AssetOverlay, SelectModeToggle } from '@/features/finishing/AssetOverlay'
+import { pickGeometry } from '@/features/finishing/geometry'
+import { useAssetPicking } from '@/features/finishing/useAssetPicking'
 import { formatDateTime } from '@/lib/format'
+import { useAssetSelectionStore } from '@/stores/useAssetSelectionStore'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { CompareControls, ViewLabel, ZoomControls } from './CanvasControls'
 import { GenerationStatus } from './GenerationStatus'
@@ -16,6 +21,7 @@ import { useViewport } from './useViewport'
 import { Viewport } from './Viewport'
 
 const t = ko.studio.canvas
+const tf = ko.studio.finishing
 
 /** Center workspace: ① the source page, ② the selected flat render, or ③ the selected merge. */
 export function MockupCanvas({ project, spec }: StudioRegionProps) {
@@ -34,6 +40,23 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
   const originalUrl =
     enhancement && flats.some((f) => f.id === enhancement.source_version_id) ? enhancement.source_image_url : null
   const comparing = !!originalUrl && compareOn
+
+  // 후가공 요소 선택: only on a finished flat render that knows where it sits on the page.
+  const frame = view === 'flat' && version?.status === 'done' ? version.frame : null
+  const pickable = !!frame && !!imageSize
+  const assets = useAssets(pid, pickable)
+  const selecting = useAssetSelectionStore((s) => s.selecting)
+  const maskFrame = assets.data?.frame
+  const geo = useMemo(
+    () => (selecting && frame && imageSize && maskFrame ? pickGeometry(frame, imageSize, maskFrame) : null),
+    [selecting, frame, imageSize, maskFrame],
+  )
+  const selectableIds = useMemo(
+    () => new Set((assets.data?.assets ?? []).filter((a) => a.selectable).map((a) => a.id)),
+    [assets.data],
+  )
+  const picking = useAssetPicking(pid, geo)
+  const hovering = useAssetSelectionStore((s) => s.hover?.projectId === pid)
 
   const page = { w: Math.round(spec.page.width_pt), h: Math.round(spec.page.height_pt) }
   const size = view === 'source' ? page : (imageSize ?? { w: 0, h: 0 })
@@ -79,6 +102,10 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
       <div className="relative w-full">
         <Viewport
           vp={vp}
+          cursor={geo ? (hovering ? 'pointer' : 'crosshair') : undefined}
+          onWorldClick={geo ? picking.onWorldClick : undefined}
+          onWorldMove={geo ? picking.onWorldMove : undefined}
+          onWorldLeave={geo ? picking.onWorldLeave : undefined}
           overlay={
             <>
               {label && <ViewLabel text={label} legacy={view !== 'source' && version?.legacy} />}
@@ -93,6 +120,12 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                 </div>
               )}
               {originalUrl && imageSize && <CompareControls />}
+              {view === 'flat' && version && imageSize && (
+                <SelectModeToggle
+                  disabled={!frame || !!assets.error}
+                  reason={!frame ? tf.noFrame : tf.modeUnavailable}
+                />
+              )}
               <ZoomControls vp={vp} />
             </>
           }
@@ -138,6 +171,7 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                     />
                   </>
                 )}
+                {geo && <AssetOverlay projectId={pid} rect={geo.maskRect} valid={selectableIds} />}
               </>
             )
           )}

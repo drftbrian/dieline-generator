@@ -7,4 +7,5 @@ export const keys = {
   references: (id: string) => ['references', id] as const,
   history: (id: string) => ['history', id] as const,
   job: (id: string) => ['job', id] as const,
+  assets: (id: string) => ['assets', id] as const,
 }

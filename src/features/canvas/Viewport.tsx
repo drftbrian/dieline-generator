@@ -14,7 +14,11 @@ type ViewportProps = {
   cursor?: string
   onWorldClick?: (p: { x: number; y: number }, e: React.MouseEvent) => void
   onWorldMove?: (p: { x: number; y: number }, e: React.MouseEvent) => void
+  onWorldLeave?: () => void
 }
+
+/** A press that moved further than this (screen px) is a drag, not a click. */
+const CLICK_SLOP = 4
 
 export function Viewport({
   vp,
@@ -25,10 +29,12 @@ export function Viewport({
   cursor,
   onWorldClick,
   onWorldMove,
+  onWorldLeave,
 }: ViewportProps) {
   const [spaceDown, setSpaceDown] = useState(false)
   const [dragging, setDragging] = useState(false)
   const drag = useRef<{ x: number; y: number } | null>(null)
+  const pressAt = useRef<{ x: number; y: number } | null>(null)
   const { containerRef, world, pan, zoom } = vp
 
   useEffect(() => {
@@ -82,6 +88,7 @@ export function Viewport({
       className={cn('relative h-full w-full touch-none overflow-hidden select-none', className)}
       style={{ cursor: panning ? 'grab' : cursor }}
       onPointerDown={(e) => {
+        pressAt.current = { x: e.clientX, y: e.clientY }
         if (spaceDown || e.button === 1) {
           drag.current = { x: e.clientX, y: e.clientY }
           setDragging(true)
@@ -101,8 +108,14 @@ export function Viewport({
           setDragging(false)
         }
       }}
-      onClick={(e) => !spaceDown && onWorldClick?.(vp.toWorld(e.clientX, e.clientY), e)}
+      onClick={(e) => {
+        const p = pressAt.current
+        pressAt.current = null
+        if (spaceDown || (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > CLICK_SLOP)) return
+        onWorldClick?.(vp.toWorld(e.clientX, e.clientY), e)
+      }}
       onMouseMove={(e) => onWorldMove?.(vp.toWorld(e.clientX, e.clientY), e)}
+      onMouseLeave={() => onWorldLeave?.()}
     >
       {world && (
         <div
