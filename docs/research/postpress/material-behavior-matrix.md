@@ -83,3 +83,22 @@ See `visual-reference-library.md` → "Visually inspected references".
 | Holographic | Under soft light: pale cyan/violet/pink iridescence; saturated rainbow only with a directional (raking) light. |
 | Spot UV vs raised UV | Confirmed distinct: spot UV = gloss contrast only; raised UV shows thickness/bubbles (reserved). |
 | Dome | Bright rim, dark edge outline, one dominant highlight band, magnified print near the edge. |
+
+## Measured from the local reference photos (renderer calibration)
+
+`backend/scripts/finish_calibrate.py` measures hand-picked crops of the study photos (kept
+locally in `backend/image learning/`, never committed) and writes only numbers to
+`backend/app/render/finishing/calibration.json`, which `render/finishing/material.py` uses:
+
+| Finish | Measured (luminance 0-1) | Used for |
+|---|---|---|
+| Gold foil (3 photos) | shadow 0.43, body 0.78, highlight 0.96 | room reflection / body / strip-light sweep |
+| Silver foil (2 photos) | shadow 0.31, body 0.76, highlight 1.0 | same, for silver and colour metals |
+| Blind emboss/deboss (3 photos, raking-ish light) | flank +0.14 / -0.23 vs board | clamp of relief shading, scaled ×0.3 for the soft top-down key |
+| Spot UV on matte black (1 photo) | matte 0.23, gloss streak 0.96 | spot-UV sheen strength |
+
+Findings that shaped the renderer: foil is read through its reflections (a bright diagonal sweep,
+darker bronze/grey where the room is mirrored, a hairline rim), not as a flat colour; the hue
+comes from the foil colour, the photos' measured "gold" pixels are mostly highlight-paled.
+Relief under soft overhead light is much gentler than in the photos, which use raking light.
+Gaps: no top-down photos; lamination sheen not measured (kept faint by design).

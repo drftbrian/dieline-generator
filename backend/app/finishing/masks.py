@@ -13,17 +13,54 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 
 import numpy as np
 import pymupdf
 
 from app.render import look
-from app.render.layers import Layers, frame
+from app.render.layers import Layers, board_coverage, frame
 from app.spec.models import FLAT_LOOK, Specification
 
-CACHE: OrderedDict[tuple, np.ndarray] = OrderedDict()
+# Masks are kept as an 8-bit crop of their own bounding box: a full-resolution (4K) mask is
+# ~50 MB as a float image but a logo or a line of text is a small part of it.
+CACHE: OrderedDict[tuple, tuple[tuple[int, int], int, int, np.ndarray]] = OrderedDict()
 CACHE_SIZE = 256
+_boards: OrderedDict[tuple, np.ndarray] = OrderedDict()
+BOARD_CACHE_SIZE = 2  # full-resolution silhouettes (uint8), the flat layers themselves are not kept
 _lock = threading.Lock()
+
+
+def _pack(m: np.ndarray) -> tuple[tuple[int, int], int, int, np.ndarray]:
+    ys, xs = np.nonzero(m > 0)
+    if not ys.size:
+        return m.shape, 0, 0, np.zeros((0, 0), np.uint8)
+    y0, x0 = int(ys.min()), int(xs.min())
+    crop = m[y0 : ys.max() + 1, x0 : xs.max() + 1]
+    return m.shape, y0, x0, np.round(np.clip(crop, 0, 1) * 255).astype(np.uint8)
+
+
+def _unpack(packed: tuple[tuple[int, int], int, int, np.ndarray]) -> np.ndarray:
+    shape, y0, x0, crop = packed
+    out = np.zeros(shape, np.float32)
+    out[y0 : y0 + crop.shape[0], x0 : x0 + crop.shape[1]] = crop.astype(np.float32) / 255
+    return out
+
+
+def board(spec: Specification, long_edge: int, structure: str) -> np.ndarray:
+    """The board silhouette (HxW 0..1) on the flat render's frame at ``long_edge``."""
+    key = (structure, long_edge)
+    with _lock:
+        if key in _boards:
+            _boards.move_to_end(key)
+            return _boards[key].astype(np.float32) / 255
+    raster, _ = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
+    sil = board_coverage(spec, raster)
+    with _lock:
+        _boards[key] = np.round(np.clip(sil, 0, 1) * 255).astype(np.uint8)
+        while len(_boards) > BOARD_CACHE_SIZE:
+            _boards.popitem(last=False)
+    return sil
 
 
 def _place(alpha: np.ndarray, h: int, w: int, dy: int, dx: int) -> np.ndarray:
@@ -105,26 +142,33 @@ def asset_mask(
     spec: Specification,
     asset: dict,
     long_edge: int,
-    layers: Layers,
+    silhouette: np.ndarray,
     svg: str | None,
     structure: str,
+    ink_layers: Callable[[], Layers] | None = None,
 ) -> np.ndarray:
-    """The finishing mask of one asset (HxW 0..1), on the board only. Cached in memory."""
+    """The finishing mask of one asset (HxW 0..1), on the board only. Cached in memory.
+
+    ``ink_layers`` gives the flat layers at ``long_edge`` for the PDF-only fallback (only
+    called when there is no SVG)."""
     key = (pid, structure, long_edge, asset["id"], asset.get("exact"))
     with _lock:
         if key in CACHE:
             CACHE.move_to_end(key)
-            return CACHE[key]
+            return _unpack(CACHE[key])
     if svg is not None:
         m = svg_coverage(svg, asset["bbox"], asset.get("clip"), spec, long_edge)
+    elif ink_layers is not None:
+        m = ink_coverage(ink_layers(), asset["bbox"], asset.get("color"))
     else:
-        m = ink_coverage(layers, asset["bbox"], asset.get("color"))
-    m = (m * (layers.silhouette > 0.001)).astype(np.float32)
+        raise ValueError("asset has no geometry")
+    m = (m * (silhouette > 0.001)).astype(np.float32)
+    packed = _pack(m)
     with _lock:
-        CACHE[key] = m
+        CACHE[key] = packed
         while len(CACHE) > CACHE_SIZE:
             CACHE.popitem(last=False)
-    return m
+    return _unpack(packed)
 
 
 def outline(m: np.ndarray, width: int = 2) -> np.ndarray:

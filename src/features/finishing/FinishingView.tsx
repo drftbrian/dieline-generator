@@ -1,9 +1,7 @@
-import type { Frame } from '@/api/types'
 import { SegmentedControl } from '@/components/ui/controls'
 import { Spinner } from '@/components/ui/Spinner'
 import { ko } from '@/i18n/ko'
 import { useCanvasStore, type FinishView } from '@/stores/useCanvasStore'
-import { frameRect } from './geometry'
 
 const t = ko.studio.finishing.view
 const stop = (e: React.SyntheticEvent) => e.stopPropagation()
@@ -78,26 +76,25 @@ export function FinishSplitControl() {
 }
 
 /**
- * The finishing preview PNG laid over the render (in the flat view's world). It covers
- * `previewFrame` (page pt); the render covers `frame`. In 비교 only the right of the divider.
+ * The finishing overlay (only the finished pixels, transparent elsewhere, at the render's own
+ * resolution) laid over the render, so everything outside the finishes stays the full-resolution
+ * render. `rect` places it as fractions of the image. In 비교 only the right of the divider.
  */
 export function FinishPreviewLayer({
   url,
-  frame,
-  previewFrame,
+  rect: r,
   image,
   compare,
   zoom,
 }: {
   url: string
-  frame: Frame
-  previewFrame: { origin: [number, number]; size: [number, number] }
+  rect: { x: number; y: number; w: number; h: number }
   image: { w: number; h: number }
   compare: boolean
   zoom: number
 }) {
   const split = useCanvasStore((s) => s.finishSplit)
-  const rect = frameRect(frame, image, previewFrame)
+  const rect = { x: r.x * image.w, y: r.y * image.h, w: r.w * image.w, h: r.h * image.h }
   const cut = rect.w > 0 ? Math.min(100, Math.max(0, ((split * image.w - rect.x) / rect.w) * 100)) : 0
   return (
     <>

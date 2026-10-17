@@ -650,8 +650,9 @@ export interface paths {
         };
         /**
          * Finishing Preview
-         * @description The flat version's look at preview resolution with the finishing revision applied
-         *     (placeholder effects in this milestone). Headers give the frame in page pt.
+         * @description Transparent PNG of the finished pixels of a flat version (placeholder effects in this
+         *     milestone), at the version's full resolution. Lay it over the version image at the frame the
+         *     headers give (page pt); everywhere it is transparent the version image is unchanged.
          */
         get: operations["finishing_preview_api_projects__pid__finishing_preview_get"];
         put?: never;

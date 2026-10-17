@@ -102,42 +102,82 @@ def test_invalid_assignments_are_refused(client, project, assignment, code):  # 
 
 
 def _preview(client, pid, vid, revision=None):
+    """The overlay composited onto the version image (what the canvas shows), the overlay's
+    alpha placed on the full image, and the version image itself."""
     params = {"version_id": vid}
     if revision is not None:
         params["revision"] = revision
     res = client.get(f"/api/projects/{pid}/finishing/preview", params=params)
     assert res.status_code == 200, res.text
-    return np.asarray(Image.open(io.BytesIO(res.content)).convert("RGB")).astype(int), res.headers
+    full = client.get(f"/api/projects/{pid}/versions/{vid}/image").content
+    image = np.asarray(Image.open(io.BytesIO(full)).convert("RGB")).astype(int)
+    x0, y0, w, h, iw, ih = (int(v) for v in res.headers["x-overlay-rect"].split(","))
+    assert (ih, iw) == image.shape[:2]  # rendered at the version's own resolution
+    shown, alpha = image.copy(), np.zeros(image.shape[:2], bool)
+    if w:
+        ov = np.asarray(Image.open(io.BytesIO(res.content)).convert("RGBA")).astype(int)
+        assert ov.shape[:2] == (h, w)
+        assert set(np.unique(ov[..., 3])) <= {0, 255}
+        a = ov[..., 3] > 0
+        alpha[y0 : y0 + h, x0 : x0 + w] = a
+        region = shown[y0 : y0 + h, x0 : x0 + w]
+        region[a] = ov[..., :3][a]
+    return shown, alpha, image
 
 
-def _px(headers, shape, x, y):
-    ox, oy = (float(v) for v in headers["x-frame-origin"].split(","))
-    sx, sy = (float(v) for v in headers["x-frame-size"].split(","))
-    return int((y - oy) / sy * shape[0]), int((x - ox) / sx * shape[1])
+_frame: dict = {}
 
 
-def test_preview_changes_only_the_masks_and_is_reversible(client, project):  # noqa: F811
+def _px(shape, x, y):
+    (ox, oy), scale = _frame["origin"], _frame["scale"]
+    return int(round((y - oy) * scale)), int(round((x - ox) * scale))
+
+
+def test_preview_overlays_only_the_masks_and_is_reversible(client, project):  # noqa: F811
+    from app.render.layers import frame
+    from app.services import specs
+    from app.spec.models import FLAT_LOOK
+    from app.storage import repo
+
     pid = project
     res = client.post(f"/api/projects/{pid}/generate", json={})
     vid = res.json()["version_id"]
     assert wait_job(client, res.json()["job_id"])["status"] == "done"
-    before, h = _preview(client, pid, vid)  # revision 0: no finishes
+    spec = specs.load(repo.project_or_404(pid))
+    raster, _ = frame(spec, 1024, FLAT_LOOK.lighting.margin)
+    _frame.update(origin=raster.origin, scale=raster.scale)
+
+    shown, alpha, image = _preview(client, pid, vid)  # revision 0: nothing to overlay
+    assert not alpha.any() and np.array_equal(shown, image)
     assert _save(client, pid, 0, [gold()]).status_code == 200
-    after, _ = _preview(client, pid, vid)
-    diff = np.abs(after - before).max(-1) > 0
-    assert diff.any()
-    assert not diff[_px(h, diff.shape, 430, 150)]  # the ring's counter stays the source
-    assert diff[_px(h, diff.shape, 404, 150)]  # the ring itself is foiled
-    ys, xs = np.nonzero(diff)
-    y0, x0 = _px(h, diff.shape, 400, 120)
-    y1, x1 = _px(h, diff.shape, 460, 180)
+    after, alpha, image = _preview(client, pid, vid)
+    # Rendered at the version's own (full) resolution; outside the overlay it is the image.
+    assert alpha.any()
+    assert np.array_equal(after[~alpha], image[~alpha])
+    assert not alpha[_px(image.shape, 430, 150)]  # the ring's counter stays the source
+    assert alpha[_px(image.shape, 404, 150)]  # the ring itself is foiled
+    ys, xs = np.nonzero(alpha)
+    y0, x0 = _px(image.shape, 400, 120)
+    y1, x1 = _px(image.shape, 460, 180)
     assert ys.min() >= y0 - 1 and ys.max() <= y1 + 1 and xs.min() >= x0 - 1 and xs.max() <= x1 + 1
-    # Hidden (disabled) finish = the original again; removing it too.
-    spec = client.get(f"/api/projects/{pid}/finishing").json()
-    off = dict(spec["assignments"][0], enabled=False)
+    # Hidden (disabled) finish = nothing overlaid; removing it too.
+    spec_f = client.get(f"/api/projects/{pid}/finishing").json()
+    off = dict(spec_f["assignments"][0], enabled=False)
     assert _save(client, pid, 1, [off]).status_code == 200
-    assert np.array_equal(_preview(client, pid, vid)[0], before)
+    assert not _preview(client, pid, vid)[1].any()
     assert _save(client, pid, 2, []).status_code == 200
-    assert np.array_equal(_preview(client, pid, vid)[0], before)
+    assert not _preview(client, pid, vid)[1].any()
     # Any saved revision can be previewed again.
     assert np.array_equal(_preview(client, pid, vid, revision=1)[0], after)
+
+
+def test_same_finish_twice_on_the_same_target_keeps_one(client, project):  # noqa: F811
+    matte = {"finish": "surface.matte_lamination", "targets": [{"kind": "sheet"}]}
+    res = _save(client, project, 0, [matte, dict(matte, params={"roughness": 0.5})])
+    assert res.status_code == 200
+    kept = res.json()["assignments"]
+    assert len(kept) == 1 and kept[0]["params"]["roughness"] == 0.5  # the later one wins
+    # The same finish on different targets is fine.
+    assert (
+        len(_save(client, project, 1, [gold(("1:2",)), gold(("1:8",))]).json()["assignments"]) == 2
+    )

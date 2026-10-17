@@ -131,12 +131,7 @@ def build_layers(
     art = np.concatenate([np.where(a > 0, rgb / np.maximum(a, 1e-6), 0), a], axis=-1)
     art = np.clip(art, 0, 1)
 
-    cut = _closed_polys(spec, "cut")
-
-    def sil_fn(r: Raster):
-        return board(r, cut)
-
-    silhouette = _coverage(sil_fn, raster) if cut else np.ones((raster.h, raster.w), np.float32)
+    silhouette = board_coverage(spec, raster)
     art[..., 3] *= silhouette  # clip artwork (and its bleed) to the cut
 
     creases = _closed_polys(spec, "crease")
@@ -157,6 +152,14 @@ def build_layers(
         crease,
         mm_per_pt=spec.scale.mm_per_pt,
     )
+
+
+def board_coverage(spec: Specification, raster: Raster) -> np.ndarray:
+    """Anti-aliased coverage of the board (the silhouette) on ``raster``, without the artwork."""
+    cut = _closed_polys(spec, "cut")
+    if not cut:
+        return np.ones((raster.h, raster.w), np.float32)
+    return _coverage(lambda r: board(r, cut), raster)
 
 
 def make_artwork_pdf(source: bytes, spec: Specification) -> bytes:

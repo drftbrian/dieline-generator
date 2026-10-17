@@ -6,7 +6,7 @@ import { ko } from '@/i18n/ko'
 import { cn } from '@/lib/cn'
 import { useFinishingStore } from '@/stores/useFinishingStore'
 import { ParamEditor, SurfacePicker } from './FinishControls'
-import { assetTargets, defaultParams, surfaceTargets, type SurfaceChoice } from './params'
+import { assetTargets, defaultParams, sameTargets, surfaceTargets, type SurfaceChoice } from './params'
 import { Swatch } from './Swatch'
 
 const t = ko.studio.finishing.assign
@@ -28,7 +28,9 @@ export function FinishPicker({
   const [finishId, setFinishId] = useState<string | null>(null)
   const [params, setParams] = useState<Record<string, number>>({})
   const [where, setWhere] = useState<'assets' | 'surface'>('assets')
-  const [surface, setSurface] = useState<SurfaceChoice>({ sheet: true, panels: [] })
+  // Nothing ticked by default: a sheet-wide finish must be a deliberate choice.
+  const [surface, setSurface] = useState<SurfaceChoice>({ sheet: false, panels: [] })
+  const existing = useFinishingStore((s) => s.assignments)
 
   const finishes = catalog.finishes.filter((f) => f.category === category)
   const finish = catalog.finishes.find((f) => f.id === finishId && f.category === category) ?? null
@@ -43,9 +45,31 @@ export function FinishPicker({
   const targets = mode === 'assets' ? assetTargets(selected) : surfaceTargets(surface)
   const blocked = !finish ? t.pickFinish : targets.length === 0 ? (mode === 'assets' ? t.needSelection : t.needPanel) : null
 
+  // The same finish on the same targets again updates it instead of stacking a second layer.
+  const twin = finish ? existing.find((a) => a.finish === finish.id && sameTargets(a.targets, targets)) : undefined
+  const spotUv = catalog.finishes.find((f) => f.id === 'coating.spot_uv' && f.available)
+  const surfaceOnSelection = mode === 'surface' && finish?.scope === 'surface' && selected.length > 0
+  const label = twin
+    ? t.update
+    : mode === 'assets'
+      ? t.applyTo.assets(selected.length)
+      : surface.sheet
+        ? t.applyTo.sheet
+        : surface.panels.length
+          ? t.applyTo.panels(surface.panels.length)
+          : t.apply
+
   const apply = () => {
     if (!finish || blocked) return
-    useFinishingStore.getState().add({ finish: finish.id, targets, params: { ...params }, enabled: true })
+    const store = useFinishingStore.getState()
+    if (twin) store.update(twin.id, { params: { ...params }, enabled: true })
+    else store.add({ finish: finish.id, targets, params: { ...params }, enabled: true })
+  }
+
+  const switchToSpotUv = () => {
+    if (!spotUv) return
+    setCategory(spotUv.category)
+    choose(spotUv)
   }
 
   return (
@@ -134,6 +158,16 @@ export function FinishPicker({
             ) : (
               <SurfacePicker panels={panels} value={surface} onChange={setSurface} />
             )}
+            {surfaceOnSelection && (
+              <div className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
+                <p>{t.surfaceOnSelection}</p>
+                {spotUv && (
+                  <Button variant="secondary" className="h-7 text-xs" onClick={switchToSpotUv}>
+                    {t.toSpotUv}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -145,9 +179,13 @@ export function FinishPicker({
         title={blocked ?? undefined}
         onClick={apply}
       >
-        {t.apply}
+        {label}
       </Button>
-      {blocked && <p className="text-[11px] text-ink-muted">{blocked}</p>}
+      {blocked ? (
+        <p className="text-[11px] text-ink-muted">{blocked}</p>
+      ) : (
+        twin && <p className="text-[11px] text-ink-muted">{t.updateNote}</p>
+      )}
     </div>
   )
 }

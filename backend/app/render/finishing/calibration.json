@@ -1,0 +1,37 @@
+{
+  "source": "local reference photos (not in the repository); numbers only",
+  "gold": {
+    "shadow": 0.428,
+    "body": 0.777,
+    "highlight": 0.959,
+    "body_rgb": [
+      0.831,
+      0.777,
+      0.594
+    ],
+    "chroma": 0.233,
+    "photos": 3,
+    "samples": 53387
+  },
+  "silver": {
+    "shadow": 0.309,
+    "body": 0.76,
+    "highlight": 0.999,
+    "body_rgb": [
+      0.72,
+      0.719,
+      0.709
+    ],
+    "chroma": 0.024,
+    "photos": 2,
+    "samples": 18074
+  },
+  "relief": {
+    "highlight": 0.142,
+    "shadow": -0.23
+  },
+  "spot_uv": {
+    "matte_base": 0.23,
+    "gloss_peak": 0.964
+  }
+}

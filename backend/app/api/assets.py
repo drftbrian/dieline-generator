@@ -119,7 +119,9 @@ def _mask(pid: str, spec, asset: dict, svgs: dict | None = None) -> np.ndarray |
         svg = (svgs if svgs is not None else fa.node_svgs(pid, [asset["id"]])).get(asset["id"])
         if svg is None:
             return None
-    return masks.asset_mask(pid, spec, asset, PREVIEW_EDGE, layers, svg, structure_key(spec))
+    return masks.asset_mask(
+        pid, spec, asset, PREVIEW_EDGE, layers.silhouette, svg, structure_key(spec), lambda: layers
+    )
 
 
 def _asset(pid: str, spec, aid: str) -> dict:

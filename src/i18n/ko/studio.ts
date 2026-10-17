@@ -266,7 +266,7 @@ export const studio = {
     missing: '(삭제된 요소)',
     assign: {
       title: '후가공 지정',
-      placeholder: '지금은 임시 미리보기입니다 — 실제 재질 표현은 다음 단계에서',
+      placeholder: '박(금·은·컬러), 형압, 라미네이팅·UV는 실제 사진 기준 재질로 보여요. 홀로그램·안료박·무코팅·에폭시는 아직 임시 미리보기예요.',
       catalogLoading: '후가공 목록을 불러오는 중…',
       categories: '후가공 종류',
       subtypes: '세부 종류',
@@ -290,6 +290,16 @@ export const studio = {
         both: '선택한 요소 또는 시트·패널 면 전체에 적용할 수 있습니다.',
       } as Record<string, string>,
       apply: '후가공 적용 / Apply Finishing',
+      applyTo: {
+        assets: (n: number) => `선택한 요소 ${n}개에 적용`,
+        sheet: '전체 시트에 적용',
+        panels: (n: number) => `패널 ${n}개에 적용`,
+      },
+      update: '같은 대상의 후가공 값 바꾸기',
+      updateNote: '같은 후가공이 이미 이 대상에 있어 새로 쌓지 않고 값만 바꿉니다.',
+      surfaceOnSelection:
+        '라미네이팅·코팅은 종이 전체(또는 패널)에 씌우는 공정이라 선택한 요소에만 할 수 없어요. 선택한 요소만 반짝이게 하려면 부분 UV를 쓰세요.',
+      toSpotUv: '부분 UV로 바꾸기',
       pickFinish: '위에서 적용할 세부 종류를 고르세요.',
       applied: (n: number) => `적용된 후가공 (${n})`,
       appliedEmpty: '아직 적용한 후가공이 없습니다.',

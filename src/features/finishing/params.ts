@@ -28,3 +28,9 @@ export const surfaceOf = (targets: FinishTarget[]): SurfaceChoice => ({
   sheet: targets.some((t) => t.kind === 'sheet'),
   panels: targets.filter((t) => t.kind === 'panel' && t.id).map((t) => t.id as string),
 })
+
+/** Same set of targets (order does not matter). */
+export const sameTargets = (a: FinishTarget[], b: FinishTarget[]) => {
+  const key = (l: FinishTarget[]) => l.map((t) => `${t.kind}:${t.id ?? ''}`).sort().join('|')
+  return key(a) === key(b)
+}

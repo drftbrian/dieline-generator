@@ -83,11 +83,20 @@ def validate(
     """Check each assignment against the catalogue and the project; clamp parameters."""
     by_id = {a["id"]: a for a in assets}
     seen: set[str] = set()
+    same: set[tuple] = set()
     out = []
     for a in assignments:
         if a.id in seen:
             raise ApiError(422, "FINISHING_DUPLICATE_ID", "같은 후가공 항목이 두 번 있습니다.")
         seen.add(a.id)
+        # The same finish twice on the same targets is a double click, not two layers of foil:
+        # the later one wins (this also cleans specs saved before the client stopped stacking).
+        where = (a.finish, frozenset((t.kind, t.id) for t in a.targets))
+        if where in same:
+            out = [
+                o for o in out if (o.finish, frozenset((t.kind, t.id) for t in o.targets)) != where
+            ]
+        same.add(where)
         try:
             f = catalog.finish(a.finish)
         except KeyError:

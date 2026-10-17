@@ -73,8 +73,9 @@ def apply(img: np.ndarray, m: np.ndarray, f: catalog.Finish, params: dict) -> np
         return np.clip(img * shade[..., None], 0, 1)
     if f.model == "clearcoat":
         gloss = params.get("gloss", 0.7) * (1 - params.get("roughness", 0.1))
-        streak = np.exp(-(((_bbox_ramp(m) - 0.35) / 0.12) ** 2))[..., None]
-        return np.clip(img + a * gloss * 0.25 * streak, 0, 1)
+        # A soft sheen, not a highlight band: a whole-sheet lamination must not blow out.
+        streak = np.exp(-(((_bbox_ramp(m) - 0.35) / 0.25) ** 2))[..., None]
+        return np.clip(img + a * gloss * 0.06 * streak, 0, 1)
     if f.model == "uncoated":
         return np.clip(img * (1 - 0.06 * a) + 0.04 * a, 0, 1)
     if f.model == "dome":
@@ -84,17 +85,22 @@ def apply(img: np.ndarray, m: np.ndarray, f: catalog.Finish, params: dict) -> np
     return img
 
 
-def render(base: np.ndarray, layers: list[tuple[catalog.Finish, dict, np.ndarray]]) -> np.ndarray:
-    """``base`` HxWx3 float (the source render) with the enabled assignments, in layer order."""
+def render(
+    base: np.ndarray, layers: list[tuple[catalog.Finish, dict, np.ndarray]]
+) -> tuple[np.ndarray, np.ndarray]:
+    """``base`` HxWx3 float (the source render) with the enabled assignments, in layer order.
+    Returns the image and the region (HxW bool) any finish may have changed; every pixel
+    outside it is the source pixel, bit for bit."""
     out = base.copy()
+    changed = np.zeros(base.shape[:2], bool)
     for f, params, m in sorted(layers, key=lambda x: LAYER.get(x[0].model, 9)):
         if not m.any():
             continue
-        # Only the finish's own area (plus the relief shoulder band) may change; everything
-        # else keeps the source pixels bit for bit.
+        # Only the finish's own area (plus the relief shoulder band) may change.
         region = m > 0
         if f.model == "relief":
             region = ndimage.binary_dilation(region, iterations=RELIEF_BAND_PX)
         new = apply(out, m, f, params).astype(np.float32)
         out = np.where(region[..., None], new, out)
-    return out
+        changed |= region
+    return out, changed

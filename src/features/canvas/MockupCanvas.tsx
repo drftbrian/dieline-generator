@@ -197,11 +197,10 @@ export function MockupCanvas({ project, spec }: StudioRegionProps) {
                     />
                   </>
                 )}
-                {finishOn && frame && previewUrl && preview.data && (
+                {finishOn && previewUrl && preview.data && (
                   <FinishPreviewLayer
                     url={previewUrl}
-                    frame={frame}
-                    previewFrame={preview.data.frame}
+                    rect={preview.data.rect}
                     image={imageSize}
                     compare={finishCompare}
                     zoom={vp.zoom}

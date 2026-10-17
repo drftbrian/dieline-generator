@@ -32,14 +32,10 @@ export function saveFinishing(projectId: string, baseRevision: number, assignmen
 }
 
 export type FinishingPreview = {
+  /** Transparent PNG of only the finished pixels, at the version image's own resolution. */
   blob: Blob
-  /** Page-pt frame the PNG covers (same frame as the asset masks). */
-  frame: { origin: [number, number]; size: [number, number] }
-}
-
-const pair = (h: string | null): [number, number] | null => {
-  const [a, b] = (h ?? '').split(',').map(Number)
-  return a !== undefined && b !== undefined && Number.isFinite(a) && Number.isFinite(b) ? [a, b] : null
+  /** Where it sits in the version image: x, y, w, h as fractions of the image's width/height. */
+  rect: { x: number; y: number; w: number; h: number }
 }
 
 async function fetchPreview(projectId: string, versionId: string, revision: number, signal: AbortSignal) {
@@ -55,13 +51,15 @@ async function fetchPreview(projectId: string, versionId: string, revision: numb
     const body = (await res.json().catch(() => null)) as { error?: { code: string; message: string } } | null
     throw new ApiError(res.status, body?.error ?? { code: `HTTP_${res.status}`, message: '미리보기를 만들지 못했습니다.' })
   }
-  const origin = pair(res.headers.get('X-Frame-Origin'))
-  const size = pair(res.headers.get('X-Frame-Size'))
-  if (!origin || !size) throw new ApiError(500, { code: 'PREVIEW_FRAME', message: '미리보기 위치 정보가 없습니다.' })
-  return { blob: await res.blob(), frame: { origin, size } } satisfies FinishingPreview
+  const px = (res.headers.get('X-Overlay-Rect') ?? '').split(',').map(Number)
+  const [x = NaN, y = NaN, w = NaN, h = NaN, iw = NaN, ih = NaN] = px
+  if (px.length !== 6 || !px.every(Number.isFinite) || iw <= 0 || ih <= 0)
+    throw new ApiError(500, { code: 'PREVIEW_FRAME', message: '미리보기 위치 정보가 없습니다.' })
+  const rect = { x: x / iw, y: y / ih, w: w / iw, h: h / ih }
+  return { blob: await res.blob(), rect } satisfies FinishingPreview
 }
 
-/** PNG of a flat version with a saved finishing revision applied (placeholder effects for now). */
+/** Overlay of a flat version's finished pixels for a saved finishing revision (placeholder effects for now). */
 export function useFinishingPreview(projectId: string, versionId: string | null, revision: number, enabled: boolean) {
   return useQuery({
     queryKey: keys.finishingPreview(projectId, versionId ?? '', revision),
