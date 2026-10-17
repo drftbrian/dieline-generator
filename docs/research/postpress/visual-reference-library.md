@@ -162,3 +162,64 @@ Legend: Real = real physical sample photographed; Sim = render or mockup; ? = no
 | Flood UV / varnish (gloss, matte, satin) | 1 | **No** |
 | Raised UV (future) | 2 | **No** |
 | Doming | 4 | Marginal (1 med–high) |
+
+---
+
+## Visually inspected references (added 2026-10-17)
+
+The records above were read as text only. The images below were **looked at** (contact sheets at
+~600 px per image). Images are not committed: the user-provided set lives in
+`backend/image learning/` (git-excluded); downloaded photos were viewed in a local scratch folder
+only. "View" is estimated from the photo. Confidence: H = clearly a real physical sample,
+M = probably real (could be a retouched/mockup scene), L = likely a mockup or illustration.
+
+### User-provided set (`backend/image learning/`, 40 images)
+
+| File | Finish | View / light | What is visible | Conf. |
+|---|---|---|---|---|
+| 후가공_박종류별.jpg | Swatch macro: silver, gold, blue, red, black, holographic foil | Close macro, oblique light | Every foil follows the paper's micro-relief: **fine glints/sparkle** and a bright→dark gradient across the swatch; black foil is a **gloss** black; holographic = green/blue/orange diffraction at this angle | H |
+| 후가공_금박.jpeg | Gold foil sample book (LUXOR ALUFIN) | Hand-held, ~30° | Gloss golds are near-mirror: each chip shows a soft bright→dark gradient; matt gold chips are uniform and dull | H |
+| 후가공_금박.jpg | Gold foil, "금박(무광)" | ~30°, soft light | Matt gold reads as flat warm gold with gentle gradient; gloss stripe on black stock shows hard bright/dark streaks with ragged brush edge | H |
+| 후가공_금박.png, 금박2.jpeg | Gold foil fine line art / type on white | ~20-30° | Thin gold lines read mostly mid-gold with occasional bright letters; crisp edges; slight impression | M |
+| 후가공_은박.jpg | Silver foil "M" + blind deboss text | ~30°, soft | Silver is **bright white/grey with dark streaks** within the glyph; blind deboss beside it shows only wall shading | H |
+| 후가공_은박2.jpeg | Silver foil on speckled kraft tube | Oblique | Bright silver glyphs, clean edges, no glow | M |
+| 후가공_녹박.jpeg/.jpg | Green metallic foil (logo; large solid) | Oblique | Large solid: **strong glints following paper texture**, bright band near the light, darker away; logo: saturated green with white specular streaks | H |
+| 후가공_청박.jpg/2/3 | Blue metallic foil | Oblique | Same sparkle-texture behaviour; small type reads saturated blue-cyan with light catches | H/M |
+| 후가공_적박*.jpg/.jpeg | Red metallic foil on red/grey stock | ~30°, soft | Dark red base with bright red glints; letters look **slightly pressed in** (hot-foil impression) | M (scenes may be retouched) |
+| 후가공_먹박*.jpeg | Black foil on black / dark stock | Hand-held, oblique | **Gloss black on matte black**: visible only as sheen/reflection contrast; edges crisp | H/M |
+| 후가공_백박*.jpg/.jpeg | White foil on dark/grey stock | Oblique | Opaque matte white, crisp; covers the dark stock fully (print vs 백박 comparison shows ink lets stock show through, foil does not) | H |
+| 후가공_홀로그램박*.png/.jpeg | Holographic foil on textured white stock | ~30° | **Pale cyan / violet / pink iridescence**, not saturated rainbows, under soft light | M |
+| 후가공_부분(UV)코팅*.jpeg/.webp/.jpg | Spot UV on matte black / grey board | Oblique | Clear gloss: **bright streak reflections where the light mirrors**, deep black elsewhere; ink underneath unchanged; sharp registration | H |
+| 후가공_부분(Uv)코팅3.jpg | Thick clear coating with bubbles ("BRAND NAME") | Oblique | Raised / high-build UV (visible thickness, bubbles, rounded shoulder) — **not** ordinary spot UV | H |
+| 후가공 UV코팅*.jpeg | Gloss UV logo / type on dark board | Oblique | Mirror-like reflections of the surroundings in the glyphs | H |
+| 후가공_엠보싱*.jpg/.jpeg | Blind emboss on white textured stock | Oblique, soft | Relief visible only by **soft wall shading and a faint shadow**; plateau same tone as board; rounded shoulders | H |
+| 후가공_디보싱*.jpeg | Blind deboss on textured white stock | Oblique, soft | Inner walls shaded on the side nearer the light, lit on the far side; stock texture continues in the recess | H |
+| 후가공_엠보싱&디보싱.jpeg | Emboss vs deboss comparison | Oblique | Emboss = raised with top-left lit wall; deboss = recessed with top-left shadowed wall | H |
+| 후가공_유광코팅.jpeg | Gloss lamination (red card) | Hand-held, oblique | One **broad bright specular band** across the card; colours saturated | H |
+| 후가공_무광코팅.jpg | Matte lamination (blue) | Oblique | **Soft broad sheen gradient**, no sharp highlight | M |
+| 다양한 후가공들.webp | Vendor overview tiles (gold, silver, black, white, red, green, blue, holo, spot UV) | Front | Illustrative vendor graphic, useful for naming/colour only | L |
+
+### Downloaded web photos (viewed locally, not committed)
+
+| Source | Finish | What is visible | Conf. |
+|---|---|---|---|
+| https://www.duratech.com/capabilities/doming/ (5 product photos) | PU resin doming over labels | Rounded dome edge with **bright rim and dark outline**; one highlight band near the top edge; print slightly magnified | H |
+| https://www.stickersinternational.co.uk/products/domed-stickers/ (domed-black-vinyl) | Domed vinyl stickers | Thick clear lens; specular blobs; rounded corners | H |
+| https://www.redprinting.co.kr/ko/landing/EPX (landing_epoxyst_01_1..4) | 에폭시 스티커 | Clear thick domes, strong highlights near the top, edge rings, magnified print; studio scenes | H/M |
+
+### Still missing after inspection
+- Varnish (gloss / satin / matte) and flood UV on board: no inspected photo.
+- Uncoated vs matte-laminated stock side by side: no inspected photo.
+- Holographic foil under a hard directional light (strong rainbow): no inspected photo.
+- Any finish photographed **top-down** under a soft overhead key (our render setup): none; all
+  inspected photos are oblique. Defaults for the top-down view remain partly inferred.
+
+### Corrections to the text-only research from the inspected photos
+1. Metallic foils (gold/silver/coloured) show a **paper-relief glint texture** (fine sparkle) and a
+   bright→dark gradient; the renderer's metal model needs a substrate-following micro-normal term.
+2. **먹박 is usually gloss black** on matte stock (visible as sheen contrast), not a matte pigment.
+   The catalogue now defaults 먹박 to gloss black and keeps a separate matte black pigment foil.
+3. Holographic foil under soft light reads as **pale pastel iridescence**, confirming "weak rainbow
+   unless the light is directional".
+4. Raised UV is clearly distinct from spot UV in real samples (visible thickness, bubbles).
+5. Domes: bright rim + dark edge outline + one dominant highlight band; print magnified.

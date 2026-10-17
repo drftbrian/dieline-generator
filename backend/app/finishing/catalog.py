@@ -69,6 +69,15 @@ REFLECTOR = Param(
     0.5,
     note="white card near the camera (tog.ink overhead foil shoot)",
 )
+GLINT = Param(
+    "glint",
+    "반짝임",
+    "Glint",
+    0.0,
+    1.0,
+    0.5,
+    note="foil follows the paper's micro-relief: fine sparkle (inspected swatches, 박종류별/녹박/청박)",
+)
 IMPRESSION = Param(
     "impression_mm",
     "눌림 깊이",
@@ -97,7 +106,7 @@ RAINBOW = Param(
     0.0,
     1.0,
     0.6,
-    note="rainbow only under directional light; grey-silver when soft (4OVER4)",
+    note="rainbow only under directional light; pale pastel when soft (4OVER4, inspected samples)",
 )
 GRATING = Param(
     "grating_lines_mm", "격자 밀도", "Grating density", 300, 1500, 1000, "lines/mm", "typical holo"
@@ -170,7 +179,7 @@ def _foil(key: str, ko: str, en: str, color: str, note: str = "") -> Finish:
         "metal",
         "selective",
         color,
-        (REFLECTIVITY, ROUGHNESS_FOIL, REFLECTOR, IMPRESSION, MISREGISTER),
+        (REFLECTIVITY, ROUGHNESS_FOIL, REFLECTOR, GLINT, IMPRESSION, MISREGISTER),
         note=note,
     )
 
@@ -193,7 +202,10 @@ FINISHES: tuple[Finish, ...] = (
     # overhead light they look completely different (dark with streaks vs flat colour).
     _foil("gold", "금박", "Gold foil", "#D4AF37"),
     _foil("silver", "은박", "Silver foil", "#D8DADC"),
-    _pigment("black", "먹박", "Black foil", "#111111"),
+    # 먹박 in the inspected samples is gloss black on matte stock (visible as sheen contrast);
+    # a matte pigment black is a separate choice.
+    _foil("black", "먹박", "Black foil (gloss)", "#141414"),
+    _pigment("black_matte", "먹박 (무광)", "Black foil (matte)", "#111111"),
     _pigment("white", "백박", "White foil", "#F7F7F5", (OPACITY,)),
     _foil("red_metallic", "적박 (메탈)", "Red foil (metallic)", "#B3262E"),
     _pigment("red", "적박 (안료)", "Red foil (pigment)", "#C1272D"),
@@ -209,7 +221,7 @@ FINISHES: tuple[Finish, ...] = (
         "holographic",
         "selective",
         "#C9CCD1",
-        (REFLECTIVITY, ROUGHNESS_FOIL, REFLECTOR, RAINBOW, GRATING, MISREGISTER),
+        (REFLECTIVITY, ROUGHNESS_FOIL, REFLECTOR, GLINT, RAINBOW, GRATING, MISREGISTER),
     ),
     # B. Relief — blind or registered (over print), emboss or deboss.
     Finish(

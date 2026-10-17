@@ -70,3 +70,16 @@ The matrix compares the finishes by how they look and behave. Sources are in `fi
 | **Flood UV / varnish** | Global clearcoat roughness preset: gloss UV < gloss aqueous < satin < matt. |
 | **Raised UV (future)** | Spot UV plus a 20–100 µm displacement with a rounded shoulder. |
 | **Dome** | Height field from a capillary-meniscus profile: flat-ish top, steep pinned edge, rounded corners. Clear dielectric with refraction (n ≈ 1.5) distorting the print near the edge. Compact specular of the key near the centre plus an edge ring highlight. Small contact shadow. |
+
+
+## D. Revisions after visual inspection (2026-10-17)
+
+See `visual-reference-library.md` → "Visually inspected references".
+
+| Finish | Revision |
+|---|---|
+| Metallic foils | Add a substrate-following micro-normal ("glint") term: real foil drapes over paper fibres and sparkles; large solids show a bright→dark gradient, never a flat fill. |
+| 먹박 (black foil) | Default is **gloss black** (metal model, dark tint): visible as sheen contrast on matte stock. Matte pigment black kept as `foil.black_matte`. |
+| Holographic | Under soft light: pale cyan/violet/pink iridescence; saturated rainbow only with a directional (raking) light. |
+| Spot UV vs raised UV | Confirmed distinct: spot UV = gloss contrast only; raised UV shows thickness/bubbles (reserved). |
+| Dome | Bright rim, dark edge outline, one dominant highlight band, magnified print near the edge. |

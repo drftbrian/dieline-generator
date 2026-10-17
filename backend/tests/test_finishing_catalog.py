@@ -42,8 +42,10 @@ def test_required_subtypes_exist():
         "dome.epoxy",
     }
     assert need <= set(catalog.BY_ID)
-    # Pigment foils never get the metal model; metallic gold/silver always do.
-    assert catalog.finish("foil.black").model == "pigment"
+    # Pigment foils never get the metal model; metallic gold/silver always do. 먹박 is gloss
+    # black (metal model, dark tint) with a separate matte pigment black.
+    assert catalog.finish("foil.black").model == "metal"
+    assert catalog.finish("foil.black_matte").model == "pigment"
     assert catalog.finish("foil.white").model == "pigment"
     assert catalog.finish("foil.gold").model == "metal"
     # Raised UV is reserved, not offered (not to be confused with spot UV or resin domes).
