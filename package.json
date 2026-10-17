@@ -1,0 +1,40 @@
+{
+  "name": "dieline-generator",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n web,api -c cyan,magenta \"pnpm dev:web\" \"pnpm dev:api\"",
+    "dev:web": "vite",
+    "dev:api": "uv run --project backend uvicorn app.main:app --app-dir backend --reload --reload-dir backend/app --port 8000",
+    "gen:types": "uv run --project backend python backend/scripts/export_openapi.py backend/openapi.json && openapi-typescript backend/openapi.json -o src/types/api.gen.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "pnpm typecheck && vite build",
+    "lint": "oxlint",
+    "test:api": "cd backend && uv run pytest -q",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.104.3",
+    "pdfjs-dist": "^5.4.624",
+    "radix-ui": "^1.8.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.4.0",
+    "zundo": "^2.3.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.6",
+    "openapi-typescript": "^7.13.0",
+    "oxlint": "^1.81.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.0"
+  }
+}

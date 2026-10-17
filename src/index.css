@@ -1,0 +1,40 @@
+@import 'tailwindcss';
+
+/* Placeholder tokens until the Design System document lands (UX §0). */
+@theme {
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+
+  --color-surface: #ffffff;
+  --color-canvas: #f4f2ee;
+  --color-line: #e4e1db;
+  --color-ink: #1c1b19;
+  --color-ink-muted: #6b6862;
+  --color-accent: #2f5bd3;
+
+  /* Provenance badge colors (UX §9) */
+  --color-prov-source: #8a877f;
+  --color-prov-user: #2f5bd3;
+  --color-prov-ai: #7c4ddb;
+  --color-prov-generated: #d9741c;
+  --color-prov-estimate: #c99a06;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas text-ink font-sans antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
