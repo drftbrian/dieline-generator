@@ -308,3 +308,61 @@ def analyze_reference(img: Image.Image) -> AiReference:
     return _call(
         REFERENCE_SYSTEM + prompts.text("reference_guide"), content, AiReference, effort="medium"
     )
+
+
+# ---- enhancement prompt reading (services/enhance_prompt.py) ---------------------------------
+
+EnhanceCategory = Literal[
+    "paper_material",
+    "lighting",
+    "shadows",
+    "fold_appearance",
+    "edge_appearance",
+    "typography",
+    "logo_brand",
+    "colour",
+    "artwork",
+    "geometry",
+    "presentation",
+    "policy_override",
+    "preserve",
+    "other",
+]
+
+
+class AiEnhanceOperation(Strict):
+    text: str  # the clause of the request, quoted
+    category: EnhanceCategory
+
+
+class AiEnhanceSpec(Strict):
+    material_detail: float
+    paper_texture: float
+    lighting_softness: float
+    lighting_direction: Literal["overhead", "top_left", "top", "top_right", "left", "right"]
+    fold_depth_appearance: float
+    fold_shadow: float
+    fold_highlight: float
+    edge_shading: float
+    contact_shadow: float
+    overall_strength: float
+
+
+class AiEnhanceReading(Strict):
+    operations: list[AiEnhanceOperation]
+    spec: AiEnhanceSpec
+
+
+def interpret_enhancement(prompt: str) -> AiEnhanceReading:
+    """Classify each operation of an untrusted enhancement request and fill the appearance spec
+    (prompts/enhance_interpret.md). The request is data inside a tagged block, never
+    instructions."""
+    content = [
+        {
+            "type": "text",
+            "text": "<user_request>\n"
+            + prompt.replace("</user_request>", "")
+            + "\n</user_request>",
+        }
+    ]
+    return _call(prompts.text("enhance_interpret"), content, AiEnhanceReading)

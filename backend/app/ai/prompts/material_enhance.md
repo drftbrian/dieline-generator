@@ -18,6 +18,9 @@ as in Image 1.
 - Clean, precise die-cut edges against a plain near-black ground.
 - Realistic but restrained physical material.
 
+## APPEARANCE (set by the application)
+$appearance
+
 ## NEVER ADD
 - New folds, holes, slots, tabs, notches or cuts. Do not move, bend or redraw any edge.
 - Any text, letters, numbers, logos, barcodes, icons, patterns or printing of any kind.

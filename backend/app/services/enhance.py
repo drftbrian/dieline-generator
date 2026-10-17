@@ -26,6 +26,7 @@ import dataclasses
 import hashlib
 import json
 import shutil
+from dataclasses import dataclass
 
 import numpy as np
 from PIL import Image
@@ -37,8 +38,10 @@ from app.ai.providers.base import GenerationRequest
 from app.errors import ApiError
 from app.jobs.runner import JobContext
 from app.render import look, shading
+from app.render.folds import FOLD_PRESETS, fold_maps
 from app.render.layers import Layers
 from app.services import brief, pipeline, specs
+from app.services.enhance_prompt import LIGHT_ANGLES, EnhanceSpec, appearance_text
 from app.spec.models import FLAT_LOOKS
 from app.spec.models import flat_look as look_for
 from app.storage import repo
@@ -57,6 +60,10 @@ DETAIL_BROAD_MM = 3.0  # broader than this is light (the light map), not paper
 DETAIL_MAX = 0.015  # the paper appearance never moves a pixel more than 1.5%
 DETAIL_STD = 0.0025  # ... and stays this restrained overall (verify cloud limit: 0.004)
 CLOUD_LIMIT = 0.0036  # mottling under the AI appearance (verify allows 0.004)
+DETAIL_SCALE_MAX = 1.6  # a prompt can ask for at most this much more paper detail
+EDGE_EXTRA = 0.02  # extra cut-edge shading at edge_shading = 1
+GAIN_MARGIN = 0.005  # stay this far inside verify's gain range
+GAIN_KNEE = 0.01  # width of the soft knee near the range limits
 COLOUR_LIMIT = 5.5  # Figma colours under the AI light (verify allows 6): leave some margin
 
 
@@ -191,17 +198,74 @@ def protected_zone(L: Layers) -> np.ndarray:
     return np.pad(up, ((0, L.height - up.shape[0]), (0, L.width - up.shape[1])), mode="edge")
 
 
+@dataclass
+class Effects:
+    """What a validated enhancement spec does, at full strength (strength scales all of it)."""
+
+    light_scale: float = 1.0  # multiplies the AI light map's deviation from 1
+    detail_scale: float = 1.0  # multiplies the AI paper detail map
+    extra: np.ndarray | None = None  # HxW relative gain: extra fold relief and edge shading
+
+
+def effects_for(spec: EnhanceSpec, L: Layers, flat_look) -> Effects:
+    """Deterministic effects of a spec on our own geometry: the fold paths, cut edge and
+    print are the source's; only how they are lit changes. The standard spec is (1, 1, none)."""
+    overall = spec.overall_strength
+    light_scale = (1.5 - spec.lighting_softness) * overall
+    detail_scale = min(DETAIL_SCALE_MAX, 2 * spec.paper_texture * (0.5 + spec.material_detail))
+    detail_scale *= overall
+    extra = np.zeros((L.height, L.width), np.float32)
+    angle = LIGHT_ANGLES[spec.lighting_direction]
+    fold_amt = max(spec.fold_depth_appearance, spec.fold_shadow, spec.fold_highlight)
+    if fold_amt > 0 and (L.crease > 0.5).any():
+        base = FOLD_PRESETS["medium"]
+        depth = max(spec.fold_depth_appearance, 0.5 * fold_amt)  # relief for light to act on
+        params = dataclasses.replace(
+            base,
+            depth_mm=base.depth_mm * depth,
+            shoulder_mm=base.shoulder_mm * depth,
+            occlusion=base.occlusion * spec.fold_shadow,
+            shadow=base.shadow * max(spec.fold_shadow, 0.3 * depth),
+            highlight=base.highlight * spec.fold_highlight,
+        )
+        extra += fold_maps(L, params, angle).gain - 1
+    if spec.edge_shading > 0:
+        rim = shading.edge_rim(L, flat_look.material, shading.light_dir(angle))
+        extra += EDGE_EXTRA * spec.edge_shading * rim / max(shading.EDGE_SHADE, 1e-6)
+    return Effects(light_scale, detail_scale, extra * overall if extra.any() else None)
+
+
 def apply(
-    parts: shading.Parts, maps: dict[str, np.ndarray], strength: float, protect: np.ndarray
+    parts: shading.Parts,
+    maps: dict[str, np.ndarray],
+    strength: float,
+    protect: np.ndarray,
+    effects: Effects | None = None,
 ) -> np.ndarray:
-    """The enhanced gain: v3 gain x light^s x (1 + s * detail). The light reaches the whole
-    board evenly (holding it back over print would outline text blocks); the fine paper detail
-    is kept off the print."""
+    """The enhanced gain: v3 gain x light^s x (1 + s * detail) x (1 + s * extra). The light
+    reaches the whole board evenly (holding it back over print would outline text blocks); the
+    fine paper detail is kept off the print; extra fold/edge relief follows our own geometry."""
+    fx = effects or Effects()
     s = float(np.clip(strength, 0, 1))
     solid = parts.sil >= 0.999  # the cut's edge pixels, openings and ground stay the source's
-    light = 1 + (maps["light"] - 1) * s * solid
-    detail = maps["detail"] * s * (1 - protect) * solid
-    return (parts.gain * light * (1 + detail)).astype(np.float32)
+    light = 1 + (maps["light"] - 1) * s * fx.light_scale * solid
+    detail = maps["detail"] * s * fx.detail_scale * (1 - protect) * solid
+    gain = parts.gain * light * (1 + detail)
+    if fx.extra is not None:
+        gain = gain * (1 + fx.extra * s * solid)
+    # Ease what the enhancement adds into the verified gain range instead of crossing it (a
+    # deeper groove on a v4 source's own folds): only the change is eased, so strength 0 is
+    # exactly the source.
+    return (parts.gain + (_soft_range(gain) - _soft_range(parts.gain))).astype(np.float32)
+
+
+def _soft_range(g: np.ndarray) -> np.ndarray:
+    """Smoothly compress values toward the inside of verify's gain range (softplus knee)."""
+    lo, hi = look.FLAT_GAIN_RANGE
+    lo, hi = lo + 2 * GAIN_MARGIN, hi - 2 * GAIN_MARGIN
+    w = GAIN_KNEE
+    g = lo + w * np.logaddexp(0, (g - lo) / w)  # never below lo
+    return hi - w * np.logaddexp(0, (hi - g) / w)  # never above hi
 
 
 def colours_hold(parts: shading.Parts, gain: np.ndarray, regions: list) -> bool:
@@ -216,20 +280,25 @@ def colours_hold(parts: shading.Parts, gain: np.ndarray, regions: list) -> bool:
 
 
 def fit_strength(
-    parts, maps, strength, protect, regions, px_per_mm: float
+    parts, maps, strength, protect, regions, px_per_mm: float, effects: Effects | None = None
 ) -> tuple[float, np.ndarray]:
     """The asked strength, or less: scaled down evenly (never locally) until the brand colours
-    hold and the board stays free of cloudy mottling. Returns (applied strength, gain)."""
+    hold, the gain stays in the verified range and the board stays free of cloudy mottling.
+    Returns (applied strength, gain)."""
     solid = parts.sil >= 0.999
     edges = look.print_edges_of(shading.to8(parts.print_rgb), solid)
     for k in (1.0, 0.75, 0.5, 0.25, 0.0):
-        gain = apply(parts, maps, strength * k, protect)
+        gain = apply(parts, maps, strength * k, protect, effects)
         if not colours_hold(parts, gain, regions):
             continue
+        g = gain[solid]
+        lo, hi = look.FLAT_GAIN_RANGE
+        if g.size and (float(g.min()) < lo + GAIN_MARGIN or float(g.max()) > hi - GAIN_MARGIN):
+            continue  # e.g. extra fold relief on top of a v4 source's own folds
         _, cloud, _ = look.board_texture(gain, solid, edges, px_per_mm)
         if cloud <= CLOUD_LIMIT or k == 0.0:
             return strength * k, gain
-    return 0.0, apply(parts, maps, 0.0, protect)
+    return 0.0, apply(parts, maps, 0.0, protect, effects)
 
 
 def enhancement_checks(
@@ -283,6 +352,8 @@ def run_enhance(ctx: JobContext, vid: str) -> dict:
         src_settings.get("flat_look") or "v3", src_settings.get("fold_preset") or "medium"
     )
     strength = float(params["strength"])
+    # The validated appearance spec (never the raw prompt); the standard one when none.
+    espec = EnhanceSpec(**(params.get("spec") or {}))
     vdir = repo.project_dir(pid) / "versions"
     src_path = vdir / f"{src['id']}.png"
     src_sha = sha(src_path)
@@ -319,7 +390,11 @@ def run_enhance(ctx: JobContext, vid: str) -> dict:
         pad = pipeline.provider_preview(shading.to8(blank.rgb), spec)
         ref_img, ref_label = reference_image(pid, params.get("reference_id"))
         req = GenerationRequest(
-            prompt=prompts.render("material_enhance", dims=brief.figma_brief(pid, spec).dims),
+            prompt=prompts.render(
+                "material_enhance",
+                dims=brief.figma_brief(pid, spec).dims,
+                appearance=appearance_text(espec),
+            ),
             images=[
                 ("Image 1 — blank board, exact structure (final):", pad.image),
                 ("Image 2 — photograph for paperboard and lighting only:", ref_img),
@@ -360,7 +435,10 @@ def run_enhance(ctx: JobContext, vid: str) -> dict:
     ctx.stage("composite", "running")
     print8 = shading.to8(parts.print_rgb)
     regions = pipeline.figma_colour_regions(pid, L, print8)
-    applied, gain = fit_strength(parts, maps, strength, protected_zone(L), regions, L.px_per_mm)
+    effects = effects_for(espec, L, flat_look)
+    applied, gain = fit_strength(
+        parts, maps, strength, protected_zone(L), regions, L.px_per_mm, effects
+    )
     board = np.clip(parts.print_rgb * gain[..., None], 0, 1)
     s = parts.sil[..., None]
     final = shading.to8(parts.background * (1 - s) + board * s)
@@ -419,6 +497,11 @@ def _manifest(params: dict, src_sha: str, usage: dict, check: dict, reg: dict) -
         "reference": params.get("reference_id") or "flat_look.png",
         "strength": params["strength"],
         "maps_from": params.get("maps_from"),
+        "user_prompt": params.get("user_prompt"),
+        "spec": params.get("spec"),
+        "operations": params.get("operations"),
+        "notes": params.get("notes"),
+        "reader": params.get("reader"),
         "limits": {
             "light_range": LIGHT_RANGE,
             "min_iou": MIN_IOU,
@@ -444,7 +527,7 @@ def _reject(pid, vid, reasons, details, params, src_sha, usage, write=True) -> N
     raise ApiError(
         422,
         "ENHANCE_REJECTED",
-        "AI 보정 결과가 검사를 통과하지 못해 원본 v3 렌더를 그대로 유지합니다.",
-        hint="다른 레퍼런스나 낮은 강도로 다시 시도하거나, 원본 v3를 그대로 쓰세요.",
+        "AI 보정 결과가 검사를 통과하지 못해 원본 렌더를 그대로 유지합니다.",
+        hint="다른 레퍼런스나 낮은 강도로 다시 시도하거나, 원본 렌더를 그대로 쓰세요.",
         details={"reasons": reasons},
     )

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { keys } from './keys'
-import type { EnhanceIn, GenerateOut, MergeIn } from './types'
+import type { EnhanceIn, EnhanceInterpretOut, GenerateOut, MergeIn } from './types'
 
 /** ② 플랫 렌더: no options — the look is fixed on the server. */
 export function useStartFlat(projectId: string) {
@@ -38,5 +38,16 @@ export function useStartEnhance(projectId: string) {
         idempotent: true,
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.history(projectId) }),
+  })
+}
+
+/** Reads an enhancement prompt without running anything: blocked or not, the spec, notes. */
+export function useInterpretEnhance(projectId: string) {
+  return useMutation({
+    mutationFn: (user_prompt: string) =>
+      api<EnhanceInterpretOut>(`/projects/${projectId}/enhance/interpret`, {
+        method: 'POST',
+        json: { user_prompt },
+      }),
   })
 }

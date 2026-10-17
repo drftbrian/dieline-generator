@@ -434,6 +434,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/enhance/interpret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Interpret Enhance Prompt
+         * @description Read an enhancement prompt without running anything: what it becomes, and whether it
+         *     asks for protected changes (the same reading the enhance endpoint enforces).
+         */
+        post: operations["interpret_enhance_prompt_api_projects__pid__enhance_interpret_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/history": {
         parameters: {
             query?: never;
@@ -620,10 +641,113 @@ export interface components {
              * @default 0.6
              */
             strength: number;
+            /** User Prompt */
+            user_prompt?: string | null;
+            /**
+             * Confirm Allowed Only
+             * @default false
+             */
+            confirm_allowed_only: boolean;
             /** Reference Id */
             reference_id?: string | null;
             /** Maps From */
             maps_from?: string | null;
+        };
+        /** EnhanceInterpretIn */
+        EnhanceInterpretIn: {
+            /**
+             * User Prompt
+             * @default
+             */
+            user_prompt: string;
+        };
+        /**
+         * EnhanceInterpretOut
+         * @description How a prompt is read, before anything runs: the spec it becomes, each operation and
+         *     whether it is allowed, and notes on what will not be applied as asked.
+         */
+        EnhanceInterpretOut: {
+            /** Prompt */
+            prompt: string;
+            /** Blocked */
+            blocked: boolean;
+            /** Message */
+            message?: string | null;
+            /**
+             * Can Run Allowed Only
+             * @default false
+             */
+            can_run_allowed_only: boolean;
+            /** Operations */
+            operations: components["schemas"]["PromptOperation"][];
+            spec: components["schemas"]["EnhanceSpec"];
+            /** Notes */
+            notes: string[];
+            /**
+             * Reader
+             * @enum {string}
+             */
+            reader: "rules" | "rules+claude";
+        };
+        /**
+         * EnhanceSpec
+         * @description The only things a prompt can change: physical appearance, each in a documented range.
+         *
+         *     0.5 is "as the standard enhancement"; 0 is "none of this extra"; 1 is the validated maximum.
+         *     Fold, edge and contact-shadow extras default to 0 (the source render already has its own).
+         */
+        EnhanceSpec: {
+            /**
+             * Material Detail
+             * @default 0.5
+             */
+            material_detail: number;
+            /**
+             * Paper Texture
+             * @default 0.5
+             */
+            paper_texture: number;
+            /**
+             * Lighting Softness
+             * @default 0.5
+             */
+            lighting_softness: number;
+            /**
+             * Lighting Direction
+             * @default overhead
+             * @enum {string}
+             */
+            lighting_direction: "overhead" | "top_left" | "top" | "top_right" | "left" | "right";
+            /**
+             * Fold Depth Appearance
+             * @default 0
+             */
+            fold_depth_appearance: number;
+            /**
+             * Fold Shadow
+             * @default 0
+             */
+            fold_shadow: number;
+            /**
+             * Fold Highlight
+             * @default 0
+             */
+            fold_highlight: number;
+            /**
+             * Edge Shading
+             * @default 0
+             */
+            edge_shading: number;
+            /**
+             * Contact Shadow
+             * @default 0
+             */
+            contact_shadow: number;
+            /**
+             * Overall Strength
+             * @default 1
+             */
+            overall_strength: number;
         };
         /** EnhancementOut */
         EnhancementOut: {
@@ -631,6 +755,14 @@ export interface components {
             source_version_id: string;
             /** Strength */
             strength: number;
+            /** User Prompt */
+            user_prompt?: string | null;
+            spec?: components["schemas"]["EnhanceSpec"] | null;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
             /** Reference Id */
             reference_id?: string | null;
             /** Maps From */
@@ -972,6 +1104,15 @@ export interface components {
         ProjectPatch: {
             /** Name */
             name: string;
+        };
+        /** PromptOperation */
+        PromptOperation: {
+            /** Text */
+            text: string;
+            /** Category */
+            category: string;
+            /** Allowed */
+            allowed: boolean;
         };
         /**
          * ReferenceAnalysis
@@ -2262,6 +2403,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenerateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    interpret_enhance_prompt_api_projects__pid__enhance_interpret_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnhanceInterpretIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnhanceInterpretOut"];
                 };
             };
             /** @description Default Response */

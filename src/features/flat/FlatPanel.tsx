@@ -69,9 +69,17 @@ export function FlatPanel({ project }: StudioRegionProps) {
             </Button>
           </div>
           {selected.enhancement ? (
-            <EnhanceResult key={selected.id} projectId={pid} version={selected} versions={versions} />
+            <EnhanceResult
+              key={selected.id}
+              projectId={pid}
+              version={selected}
+              versions={versions}
+              busy={running.length > 0}
+            />
           ) : (
-            isEnhanceable(selected) && <EnhanceStart key={selected.id} projectId={pid} source={selected} />
+            isEnhanceable(selected) && (
+              <EnhanceStart key={selected.id} projectId={pid} source={selected} busy={running.length > 0} />
+            )
           )}
         </>
       ) : (

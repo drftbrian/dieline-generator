@@ -9,12 +9,20 @@ from fastapi import APIRouter, Request, Response
 from app.ai import providers
 from app.ai.models import IMAGE_MODEL
 from app.api.deps import idempotent_replay, is_legacy, remember
-from app.api.schemas import EnhanceIn, GenerateIn, GenerateOut, JobOut, MergeIn
+from app.api.schemas import (
+    EnhanceIn,
+    EnhanceInterpretIn,
+    EnhanceInterpretOut,
+    GenerateIn,
+    GenerateOut,
+    JobOut,
+    MergeIn,
+)
 from app.config import get_settings
 from app.errors import ApiError
 from app.jobs import runner
 from app.jobs.runner import Cancelled, JobContext
-from app.services import enhance, merge, pipeline, specs
+from app.services import enhance, enhance_prompt, merge, pipeline, specs
 from app.storage import repo
 
 router = APIRouter(tags=["generate"])
@@ -271,6 +279,11 @@ def start_enhance(pid: str, vid: str, body: EnhanceIn, request: Request):
                 "다시 적용할 AI 보정 결과를 찾을 수 없습니다.",
                 hint="같은 원본의 완료된 AI 보정 버전을 선택해주세요.",
             )
+    # Priority 1/2 before anything runs: the prompt is read into a spec, and any protected
+    # operation is refused here, server-side, whatever the client did.
+    reading = enhance_prompt.permitted(
+        enhance_prompt.interpret(body.user_prompt), body.confirm_allowed_only
+    )
     if body.reference_id and repo.get("refs", body.reference_id) is None:
         raise ApiError(404, "REFERENCE_NOT_FOUND", "레퍼런스를 찾을 수 없습니다.")
     _check_can_start(project, needs_model=not body.maps_from)
@@ -290,7 +303,32 @@ def start_enhance(pid: str, vid: str, body: EnhanceIn, request: Request):
             "reference_id": body.reference_id,
             "maps_from": body.maps_from,
             "phase": enhance.PHASE,
+            "user_prompt": reading.prompt or None,
+            "spec": reading.spec.model_dump(),
+            "operations": [o.model_dump() for o in reading.operations],
+            "notes": reading.notes,
+            "reader": reading.reader,
         },
     )
     remember(request, f"enhance:{pid}:{vid}", 202, out.model_dump())
     return out
+
+
+@router.post("/projects/{pid}/enhance/interpret", response_model=EnhanceInterpretOut)
+def interpret_enhance_prompt(pid: str, body: EnhanceInterpretIn) -> EnhanceInterpretOut:
+    """Read an enhancement prompt without running anything: what it becomes, and whether it
+    asks for protected changes (the same reading the enhance endpoint enforces)."""
+    repo.project_or_404(pid)
+    reading = enhance_prompt.interpret(body.user_prompt)
+    forbidden = reading.forbidden
+    appearance = [o for o in reading.operations if o.category in enhance_prompt.APPEARANCE_CATS]
+    return EnhanceInterpretOut(
+        prompt=reading.prompt,
+        blocked=bool(forbidden),
+        message=enhance_prompt.PROTECTED_MESSAGE if forbidden else None,
+        can_run_allowed_only=bool(forbidden) and bool(appearance),
+        operations=[o.model_dump() for o in reading.operations],
+        spec=reading.spec,
+        notes=reading.notes,
+        reader=reading.reader,
+    )

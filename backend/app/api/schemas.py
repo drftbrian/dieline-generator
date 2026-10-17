@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.errors import ErrorBody
+from app.services.enhance_prompt import EnhanceSpec
 from app.spec.models import PathClass
 
 ProjectStatus = Literal[
@@ -217,15 +218,47 @@ class EnhanceIn(BaseModel):
     """Post-render AI material enhancement of a finished deterministic flat render."""
 
     strength: float = Field(0.6, ge=0, le=1)  # how much of the AI appearance is applied
+    # Natural-language appearance request (Korean or English). Untrusted: it is only ever read
+    # into an EnhanceSpec; a protected-design operation is refused (422 PROMPT_PROTECTED).
+    user_prompt: str | None = Field(None, max_length=1000)
+    # Run only the permitted part of a prompt that also asked for protected changes.
+    confirm_allowed_only: bool = False
     reference_id: str | None = None  # material/light photo; default: the bundled look photo
     # Re-apply the maps of an earlier enhancement of the same source at a new strength
     # (no image model call, no cost).
     maps_from: str | None = None
 
 
+class EnhanceInterpretIn(BaseModel):
+    user_prompt: str = Field("", max_length=1000)
+
+
+class PromptOperation(BaseModel):
+    text: str
+    category: str  # appearance, protected, "preserve" or "other" (see enhance_prompt)
+    allowed: bool
+
+
+class EnhanceInterpretOut(BaseModel):
+    """How a prompt is read, before anything runs: the spec it becomes, each operation and
+    whether it is allowed, and notes on what will not be applied as asked."""
+
+    prompt: str
+    blocked: bool  # some operation changes a protected design element
+    message: str | None = None
+    can_run_allowed_only: bool = False
+    operations: list[PromptOperation]
+    spec: EnhanceSpec
+    notes: list[str]
+    reader: Literal["rules", "rules+claude"]
+
+
 class EnhancementOut(BaseModel):
     source_version_id: str
     strength: float
+    user_prompt: str | None = None  # as typed
+    spec: EnhanceSpec | None = None  # what it was read into (and applied)
+    notes: list[str] = []  # what was dropped or could not be applied
     reference_id: str | None = None  # None: the bundled look photo
     maps_from: str | None = None
     phase: int = 1

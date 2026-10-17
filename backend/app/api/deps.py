@@ -122,6 +122,9 @@ def version_out(v: dict) -> VersionOut:
             maps_from=settings.get("maps_from"),
             phase=settings.get("phase", 1),
             source_image_url=f"/api/projects/{pid}/versions/{settings['source_version_id']}/image",
+            user_prompt=settings.get("user_prompt"),
+            spec=settings.get("spec"),
+            notes=settings.get("notes") or [],
         )
         if settings.get("flat_mode") == "ai_material"
         else None,

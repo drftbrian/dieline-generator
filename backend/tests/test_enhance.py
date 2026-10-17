@@ -214,7 +214,7 @@ def test_ghosted_typography_is_caught_by_verification(client, source, monkeypatc
     """If the protection itself broke, verification still rejects the ghost."""
     from app.services import enhance
 
-    def unprotected(parts, maps, strength, protect):
+    def unprotected(parts, maps, strength, protect, effects=None):
         return (parts.gain * (1 + strength * maps["detail"] * (parts.sil >= 0.999))).astype(
             np.float32
         )
