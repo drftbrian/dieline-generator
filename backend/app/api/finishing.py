@@ -255,7 +255,6 @@ def finishing_warnings(pid: str, revision: int | None = None) -> WarningsOut:
     glue flap, combinations (research defaults; a printer's own limits may differ)."""
     spec = assets_api._ready(pid)
     fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
-    return WarningsOut(
-        revision=fin.revision,
-        warnings=[WarningOut(**w) for w in constraints.check(pid, spec, fin)],
-    )
+    key = ("warnings", pid, fin.revision, structure_key(spec))
+    found, _ = _cached(key, lambda: (constraints.check(pid, spec, fin), {}))
+    return WarningsOut(revision=fin.revision, warnings=[WarningOut(**w) for w in found])

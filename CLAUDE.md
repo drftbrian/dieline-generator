@@ -14,7 +14,7 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 
 ### Frontend (`src/`)
 - `api/`: fetch client + TanStack Query hooks per resource (`generate.ts` has `useStartFlat` / `useStartMerge`; also figma, projects, references, history, jobs, source, spec).
-- `features/`: `flat` (step 2 panel), `merge` (step 3 panel: reference drop zone, Claude's read-only reading, form 자동/평면/입체, flat-version picker), `canvas` (source / flat / merge viewer + job status), `history` (version strip), `inspector` (source facts), `review` (structural review), `analysis`, `upload`, `projects`, `studio` (top bar, shared step-panel pieces, `versions.ts` helpers).
+- `features/`: `flat` (step 2 panel), `finishing` (② finishing studio: asset picking, finish picker, applied list, checks, save/sweep/plates), `merge` (step 3 panel: reference drop zone, Claude's read-only reading, form 자동/평면/입체, flat-version picker), `canvas` (source / flat / merge viewer + job status), `history` (version strip), `inspector` (source facts), `review` (structural review), `analysis`, `upload`, `projects`, `studio` (top bar, shared step-panel pieces, `versions.ts` helpers).
 - `pages/`: Dashboard, Analyze, StructuralReview, Studio, WorkspaceGate, NotFound. `app/`: shell, providers, router.
 - `stores/`: zustand (`useCanvasStore`: view `source|flat|merge`, selected `flatId` / `mergeId`, `mergeSourceId`, toasts, UI).
 - `i18n/ko/*`: all Korean UI strings.
@@ -23,6 +23,8 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 ### Backend (`backend/app/`)
 - `api/`: routers (`health`, `figma`, `projects`, `references`, `generate`, `history`), `schemas.py`, `deps.py` (`version_out`, `is_legacy`).
 - `services/pipeline.py`: analyze job, structure render (`flat.jpg`), step 2 `run_generate`, shared `composite` / `verify` / `deliver`.
+- `finishing/`: `catalog` (finish ids, params), `spec` (revisions, validation, conflict), `assets` + `masks` (Figma asset tree, outlined-SVG masks), `compose` (finishes over a version image, sweep), `constraints` (manufacturing checks), `plates` (printer plates zip).
+- `services/finish_realism.py`: finished versions (`flat_mode: "finished"`) and optional AI 사실감.
 - `services/merge.py`: step 3 `run_merge`, carton faces, `stage`, folded `composite`, reference staleness (`REFERENCE_SCHEMA`).
 - `services/brief.py`: `figma_brief` (dims, panels, verbatim texts by panel/face, fonts, logos, colours); PDF-text fallback.
 - `services/specs.py`: load/save the Specification.
@@ -43,6 +45,7 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 - Structure: `GET|PATCH /projects/{pid}/specification`, `POST /projects/{pid}/specification/confirm`
 - References: `GET|POST /projects/{pid}/references`, `POST /{rid}/analyze`, `DELETE /{rid}`, `GET /{rid}/image`, `/{rid}/thumb`
 - Generation: `POST /projects/{pid}/generate` (`{}`), `POST /projects/{pid}/merge` (`{reference_id, flat_version_id?, form: auto|flat|folded}`), `GET /jobs/{id}`, `POST /jobs/{id}/cancel`
+- Finishing: `GET /finishing/catalog`, `GET|PUT /projects/{pid}/finishing`, `GET .../finishing/revisions/{rev}`, `GET .../finishing/preview?version_id&revision&light` (RGBA overlay, `X-Overlay-Rect`), `.../finishing/sweep` (GIF), `.../finishing/warnings`, `.../finishing/plates` (zip), `GET .../assets`, `.../assets/{aid}/mask`, `POST .../assets/hit`, `POST /projects/{pid}/versions/{vid}/finish` (`{revision?, ai, strength, light}`)
 - History: `GET /projects/{pid}/history`, `GET|DELETE /projects/{pid}/versions/{vid}`, `GET .../image` (`?download=1`), `GET .../thumb`
 - Errors are `{code, message, hint, details}` with Korean messages (e.g. 409 `STRUCTURE_UNCONFIRMED`, 503 `PROVIDER_UNAVAILABLE`, 429 `TOO_MANY_GENERATIONS`, 422 `ARTWORK_MISMATCH`).
 
@@ -57,7 +60,8 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 - **Post-render AI enhancement (`ai_material`, `services/enhance.py`)** is a separate job on a finished deterministic version: it makes a new version, never writes the source. The model only gets a blank board (`blank_layers`) + a reference; only `extract`'s light/detail maps are used, applied by `apply`/`fit_strength` (strength lowered evenly for colour/cloud limits), detail kept off print (`protected_zone`) and off non-solid pixels. Gated by `verify_flat` + `enhancement_checks`; failure = `ENHANCE_REJECTED`. `maps_from` re-applies saved `.npy` maps without the model.
 - **Korean UI strings live in `src/i18n/ko/*`**, not inline in components.
 - **`src/types/api.gen.ts` is generated: never hand-edit.** Run `pnpm gen:types` after any backend schema change.
-- **Keep it 3 steps.** No library, interpret/instructions, finishes, scene builder, export dialogs or other extras. Delete rather than hide.
+- **Keep it 3 steps.** No library, interpret/instructions, scene builder, export dialogs or other extras. Delete rather than hide. The finishing studio lives inside ② (see below), not as a step.
+- **Finishing studio (②)**: finishes are a separate, versioned specification (`finishing.json` + `finishing/rev-N.json`); never written into the Figma source or a render. Masks come only from source geometry (Figma outlined SVG; PDF ink only for PDF-only projects), never from a model. The preview and finished versions change only pixels inside the finish regions (mask + relief shoulder); everything else is the version image bit for bit (tests pin this). Materials in `render/finishing/material.py` use tone levels measured from local photos (`calibration.json`, `scripts/finish_calibrate.py`); the study photos in `backend/image learning/` are never committed. AI 사실감 only keeps a bounded luminance map inside each mask and is dropped when misaligned, too different or further from the photo levels. Manufacturing checks are advice (research defaults), never a block.
 - Redline rule: outer outline = cut, inner lines = fold, inner closed loops = openings (black). Never remove artwork on a guess (uncertain lines stay `unresolved` for human review).
 - Old data must keep loading: unknown spec keys are ignored; versions without `settings_json.pipeline == 2` are legacy; stale reference readings are re-read in the background.
 

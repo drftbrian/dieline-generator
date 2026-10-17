@@ -1,6 +1,6 @@
 # PRD — Asset-Based Print Finishing Studio (후가공 스튜디오)
 
-Status: draft for Milestone 1 review · Branch: `feat/asset-based-finishing-studio`
+Status: implemented through Milestone 7 (see §9) · Branch: `feat/asset-based-finishing-studio`
 Research basis: `docs/research/postpress/*.md` · Implementation plan: `docs/prd/finishing-implementation-plan.md`
 
 ## 1. Problem
@@ -143,3 +143,43 @@ dieline's coordinates; a PDF-only project can be finished; finished versions mer
 - Figma API availability for node export (cached; offline fixtures in tests).
 - Performance at 4096 px (preview resolution, caching).
 - Supplier-specific manufacturing rules (configurable profile, cited defaults).
+
+
+## 9. Implementation status, QA and limitations (Milestones 2-7)
+
+**Done**
+- Selection on exact Figma geometry (outlined SVG per node, clipping, counters); PDF-only fallback
+  from printed ink (approximate). Specification with revisions, conflict detection, undo/redo; the
+  same finish on the same targets collapses to one.
+- Preview = transparent overlay of only the finished pixels at the version's full resolution
+  (outside: the version image, bit for bit). Removing or hiding a finish restores it exactly.
+- Materials for all 26 catalogue finishes (`render/finishing/material.py`), tone levels measured
+  from local reference photos (`calibration.json`); top or raking light; light sweep (GIF).
+- Finished versions (`flat_mode: "finished"`) usable in ③; optional "AI 사실감": the model's picture
+  of each foil / relief / spot-UV area only lends a bounded luminance map inside the mask, rejected
+  when misaligned, too different, or measurably further from the photo tone levels.
+- Manufacturing checks (`finishing/constraints.py`) from `manufacturing-constraints.md`; finishing
+  plates (vector PDF per finish, dieline on a non-printing layer, spec JSON).
+
+**Measured (Zentra, 4096 px render, 5 finishes, Apple silicon)**
+- Preview overlay: ~8 s first time (board + masks at full size), ~2 s after, then cached per revision.
+- Light sweep (12 frames, ≤900 px): ~2.5 s. Manufacturing checks: ~8 s cold, ~2 s warm, cached.
+  Plates: <0.1 s. Finished version job (no AI): ~10-25 s.
+
+**Comparison with real photos (honest reading of `scripts/finish_gallery.py`)**
+- Gold / silver / coloured metal foil and blind emboss/deboss read as the same family as the photos
+  (reflection sweep, deeper metal tones, rim; soft flank shading). Holographic: pastel silver with
+  soft iridescence, saturating under raking light, as in the photos.
+- Spot UV / varnish: deliberately subtle; on light stock it barely shows (as in reality).
+- Not photo-identical: no camera perspective or depth of field, one fixed studio environment, no
+  paper fibre change under raking light outside the finishes (the board keeps the flat render's
+  light), domes are a simplified meniscus/refraction model. "AI 사실감" exists for this gap but is
+  only used when it passes the checks.
+
+**Limitations / not done**
+- Character-range selection inside a text, lasso selection.
+- Text size check uses Figma font size; outlined or PDF-only text falls back to stroke width.
+- Glue flap is found by panel name (접착 / 풀칠 / glue); rename the panel if it is not detected.
+- `ai_material` enhancement is not offered on finished versions (finish first, or enhance first and
+  then finish — both orders keep the finishes exact).
+- Reference photos are local only; without them the AI step runs with the prompt alone.

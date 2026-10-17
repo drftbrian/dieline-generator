@@ -12,6 +12,7 @@ import math
 import numpy as np
 from scipy import ndimage
 
+from app.config import get_settings
 from app.finishing import assets as fa
 from app.finishing import catalog, compose, masks
 from app.finishing import spec as fspec
@@ -85,7 +86,10 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
         return []
     x0, y0, x1, y1 = package_bbox(spec)
     long_mm = max(x1 - x0, y1 - y0) * spec.scale.mm_per_pt * 1.2
-    edge = int(min(6000, max(2048, math.ceil(PX_PER_MM * long_mm))))
+    # The flat render's own size when it is fine enough (its board and masks are cached).
+    edge = get_settings().flat_long_edge
+    if edge < PX_PER_MM * long_mm * 0.8:
+        edge = int(min(6000, math.ceil(PX_PER_MM * long_mm)))
     raster, _ = frame(spec, edge, FLAT_LOOK.lighting.margin)
     ppm = raster.scale / spec.scale.mm_per_pt
     skey = structure_key(spec)
@@ -122,10 +126,10 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
         ms = [m for m in ms if m is not None]
         if not ms:
             continue
-        m = np.maximum.reduce(ms) > 0.5
-        shapes[a.id] = m
+        full = np.maximum.reduce(ms) > 0.5
+        shapes[a.id] = full
         if f.scope == "surface" or all(t.kind != "asset" for t in a.targets):
-            if glue.any() and (m & glue).any():
+            if glue.any() and (full & glue).any():
                 level = (
                     "error" if f.model == "clearcoat" and "lamination" not in f.id else "warning"
                 )
@@ -140,9 +144,17 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
                 )
             continue
         lim = LIMITS.get(f.model)
-        if lim is None:
+        if lim is None or not full.any():
             continue
         warn_w, err_w, min_gap, min_pt = lim
+        # Measure on the shape's own neighbourhood, not the whole sheet.
+        ys, xs = np.nonzero(full)
+        pad = int((2 * min_gap + 1) * ppm) + 4
+        sl = (
+            slice(max(0, ys.min() - pad), ys.max() + 1 + pad),
+            slice(max(0, xs.min() - pad), xs.max() + 1 + pad),
+        )
+        m = full[sl]
         widths = _ridge_widths(m, ppm)
         if widths.size:
             thin = float(np.percentile(widths, 10))  # stroke ends taper: not the width
@@ -204,7 +216,7 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
                         min_pt,
                     )
                 )
-        near_cut = float(dist_cut[m].min()) if m.any() else 99
+        near_cut = float(dist_cut[sl][m].min())
         if near_cut < EDGE_MM:
             out.append(
                 _w(
@@ -218,8 +230,8 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
                 )
             )
         if dist_crease is not None and m.any():
-            crosses = bool((m & crease).any())
-            near = float(dist_crease[m].min())
+            crosses = bool((m & crease[sl]).any())
+            near = float(dist_crease[sl][m].min())
             if crosses and f.model in ("relief", "clearcoat", "metal", "holographic", "pigment"):
                 out.append(
                     _w(
@@ -242,7 +254,7 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
                         EDGE_MM,
                     )
                 )
-        if glue.any() and (m & glue).any():
+        if glue.any() and (m & glue[sl]).any():
             out.append(
                 _w(
                     "error",

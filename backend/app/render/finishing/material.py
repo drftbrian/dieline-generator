@@ -274,7 +274,11 @@ def clearcoat(
         sx, sy = _slopes(h, ppm)
         lv = light_vector(scene.light_angle, scene.light_elevation_deg)
         edge = np.clip((-sx * lv[0] - sy * lv[1]) * 40 * (0.02 / max(thick, 0.02)), -1, 1)
-        sheen = s * peak * (cal["gloss_peak"] - cal["matte_base"]) * 0.35
+        # A clear coat shows only where it mirrors a light: the strip's sweep across the
+        # shape, a faint broad lift from the softbox; elsewhere just the deeper, wetter colour.
+        band = strip(m, scene, sx * 0.3, sy * 0.3, rough)
+        sheen = (0.06 * s + 0.6 * band) * peak * (cal["gloss_peak"] - cal["matte_base"])
+        sheen = sheen * (1 - 0.6 * (out @ LUMA))  # on light stock the gloss barely shows
         out = (
             out
             + (
@@ -320,16 +324,16 @@ def holographic(
     lx, ly = shading.light_dir(scene.light_angle)
     rim = ndimage.gaussian_filter(m, max(0.6, 0.12 * scene.px_per_mm)) * -0.02
     sx, sy = _slopes(rim, scene.px_per_mm)
-    phase = (u * lx + v * ly) * (lines / 1000) * 6 + (sx * lx + sy * ly) * 40
+    phase = (u * lx + v * ly) * (lines / 1000) * 2.5 + (sx * lx + sy * ly) * 40
     hue = (phase - np.floor(phase)).ravel()
     directional = scene.light_elevation_deg < 20
-    sat = (0.22 + 0.4 * diff) * (1.6 if directional else 1.0)
+    sat = (0.12 + 0.25 * diff) * (2.0 if directional else 1.0)
     lut = np.array(
         [colorsys.hsv_to_rgb(h, min(sat, 0.85), 1.0) for h in np.linspace(0, 1, 256)], np.float32
     )
     rainbow = lut[(hue * 255).astype(int)].reshape(*m.shape, 3)
     y = (silver @ LUMA)[..., None]
-    k = (0.35 + 0.4 * diff) * m[..., None]
+    k = (0.25 + 0.35 * diff) * m[..., None]
     out = silver * (1 - k) + np.clip(rainbow * y * 1.1, 0, 1) * k
     a = m[..., None]
     return np.clip(img * (1 - a) + out * a, 0, 1)
@@ -383,10 +387,14 @@ def dome(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Scen
         blur = ndimage.gaussian_filter(under, (max(0.0, (1 - clarity) * 3 * ppm * 0.1),) * 2 + (0,))
         under = blur * np.array([1.0, 0.99, 1 - (1 - clarity) * 0.6], np.float32)
     slope = np.hypot(sx, sy)
-    soft = reflection(m.shape, scene, sx, sy, 0.03)
-    band = strip(m, scene, sx, sy, 0.02)
-    spec = hl * (0.18 * soft + 0.6 * band)
-    dark_rim = np.clip(slope * 0.9, 0, 0.35)
+    # Reflections: the steep meniscus would throw the mirrored lights far away (streaks);
+    # the visible highlight sits on the gently curved top, so bound the tilt it sees.
+    tx, ty = np.clip(sx * 0.3, -0.15, 0.15), np.clip(sy * 0.3, -0.15, 0.15)
+    soft = reflection(m.shape, scene, tx, ty, 0.03)
+    band = strip(m, scene, tx, ty, 0.04)
+    spec = hl * (0.08 * soft + 0.5 * band) * (1 - np.clip(slope, 0, 1))
+    # The edge: a thin darker line where the surface turns steeply (light refracted away).
+    dark_rim = np.clip((slope - 0.6) * 0.5, 0, 0.18)
     out = under * (1 - dark_rim)[..., None] + spec[..., None]
     a = m[..., None]
     return np.clip(img * (1 - a) + np.clip(out, 0, 1) * a, 0, 1)
