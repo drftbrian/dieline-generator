@@ -1,5 +1,5 @@
 """Processing pipelines run by background jobs: analysis, the structure render and step 2,
-the flat photoreal render."""
+the flat render (deterministic, optionally lit by the image model)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -18,6 +19,7 @@ from scipy import ndimage
 from app.ai import claude, prompts, providers
 from app.ai.models import IMAGE_MODEL
 from app.ai.providers.base import GenerationRequest
+from app.ai.providers.gemini import nearest_ratio
 from app.config import get_settings
 from app.errors import ApiError
 from app.figma import client as figma
@@ -35,14 +37,16 @@ log = logging.getLogger(__name__)
 
 # The look reference for step 2 (Image 2): black background, top-down, matte white board.
 FLAT_LOOK_IMAGE = prompts.DIR / "flat_look.png"
-# Marks a version made by this pipeline; older rows are shown as legacy.
-PIPELINE = 2
+# Marks a version made by this pipeline; older rows are shown as legacy. 3: deterministic
+# flat render (renders of 2 took the model's surface and edges and are not merged any more).
+PIPELINE = 3
 
 # ---- layer cache ---------------------------------------------------------------------
 
 _cache: OrderedDict[str, Layers] = OrderedDict()
 _cache_lock = threading.Lock()
 CACHE_SIZE = 8
+CACHE_MAX_EDGE = 2048  # full-size flat layers (~4K) are hundreds of MB: built per job, not kept
 
 
 def get_layers(pid: str, spec: Specification, long_edge: int, margin: int) -> Layers:
@@ -60,6 +64,8 @@ def get_layers(pid: str, spec: Specification, long_edge: int, margin: int) -> La
         art_pdf = make_artwork_pdf(source, spec)
         art_path.write_bytes(art_pdf)
     layers = build_layers(source, spec, long_edge, margin, artwork_pdf=art_pdf)
+    if long_edge > CACHE_MAX_EDGE:
+        return layers
     with _cache_lock:
         _cache[key] = layers
         while len(_cache) > CACHE_SIZE:
@@ -344,8 +350,22 @@ def _ai_panel_names(pid: str, spec: Specification) -> None:
 
 
 # ---- step 2: flat render -------------------------------------------------------------
+#
+# The flat render is deterministic: the PDF/Figma vectors are rasterized once at the final
+# size, on a board whose fibres, folds, light and cut edge are an achromatic gain, with the
+# exact silhouette, openings and a black background. Nothing in it comes from an image model.
+#
+# "ai_appearance" mode may additionally ask the image model for a photographed look. Only a
+# smooth, clamped, neutral light map measured on clean unprinted paper is taken from its
+# image, and only when its board lines up with ours; its print, edges, texture and background
+# are never used. See flat_render_replacement in prompts/flat_render.md.
 
-GEN_LONG_EDGE = 2048  # model output at 2K: fine ribs and fibres need it
+FlatMode = Literal["deterministic", "ai_appearance"]
+GEN_LONG_EDGE = 2048  # provider preview size (the model's image is never the print master)
+AI_LIGHT_RANGE = (0.96, 1.03)  # the model may only shade the board this gently
+AI_LIGHT_SIGMA = 0.03  # light map scale: 3% of the long edge, far larger than any glyph
+AI_MIN_IOU = 0.9  # the model's board must cover ours this well, or its light is not used
+AI_MIN_CLEAN = 0.05  # share of the board that must be clean paper to measure light on
 
 
 def gen_size(spec: Specification) -> tuple[int, int]:
@@ -396,58 +416,184 @@ def deliver(pid: str, vid: str, image: np.ndarray, check: dict, **fields) -> Non
     repo.update("projects", pid, updated_at=repo.now())  # refresh the thumbnail cache key
 
 
-def run_generate(ctx: JobContext, vid: str) -> dict:
-    """Step 2: one flat, unfolded photoreal render in the fixed look (prompts/flat_render.md).
+@dataclass
+class Padded:
+    """The provider preview: our frame centred on a canvas of the provider's aspect ratio,
+    so the returned image maps back onto our pixels by a known scale and offset."""
 
-    Image 1 is our exact print, Image 2 the look reference. The model's image only lends the
-    board's surface and light: the print is composited back from the PDF and verified.
+    image: Image.Image
+    box: tuple[int, int, int, int]  # where our frame sits on the canvas (x0, y0, x1, y1)
+
+
+def provider_preview(final: np.ndarray, spec: Specification) -> Padded:
+    w, h = gen_size(spec)
+    rw, rh = (int(v) for v in nearest_ratio(w, h).split(":"))
+    if w / h > rw / rh:
+        cw, ch = w, round(w * rh / rw)
+    else:
+        cw, ch = round(h * rw / rh), h
+    canvas = Image.new("RGB", (cw, ch), (0, 0, 0))
+    x0, y0 = (cw - w) // 2, (ch - h) // 2
+    canvas.paste(Image.fromarray(final).convert("RGB").resize((w, h), Image.LANCZOS), (x0, y0))
+    return Padded(canvas, (x0, y0, x0 + w, y0 + h))
+
+
+def registered(raw: Image.Image, pad: Padded, w: int, h: int) -> np.ndarray:
+    """The model's image mapped onto our frame (float RGB, h x w), through the padding
+    transform; a returned image of the canvas's aspect lands pixel-aligned."""
+    cw, ch = pad.image.size
+    sx, sy = raw.width / cw, raw.height / ch
+    x0, y0, x1, y1 = pad.box
+    crop = raw.convert("RGB").crop((x0 * sx, y0 * sy, x1 * sx, y1 * sy))
+    return np.asarray(crop.resize((w, h), Image.LANCZOS)).astype(np.float32) / 255
+
+
+def model_board_iou(scene: np.ndarray, sil: np.ndarray) -> float:
+    """How well the model's board (bright against the black ground) covers our exact board."""
+    k = 4
+    s = ndimage.uniform_filter(scene @ look.LUMA, k)[::k, ::k] > 0.12
+    ours = sil[::k, ::k] > 0.5
+    union = (s | ours).sum()
+    return float((s & ours).sum() / union) if union else 0.0
+
+
+def clean_paper(L: Layers, sil: np.ndarray) -> np.ndarray:
+    """Board away from print edges (text, logos, barcode, line work), folds and the cut edge:
+    where light can be measured. Flat tints and gradients count: the model's light on them is
+    still a ratio to our own render there."""
+    solid = ndimage.binary_erosion(sil >= 0.999, iterations=max(2, round(1.5 * L.px_per_mm)))
+    near = max(2, round(2.0 * L.px_per_mm))
+    print_rgb = shading.print_surface(L, FLAT_LOOK.material)
+    edges = ndimage.binary_dilation(
+        surface.print_edges(print_rgb, sil, L.px_per_mm), iterations=near
+    )
+    folds = ndimage.binary_dilation(L.crease > 0.05, iterations=near)
+    return solid & ~edges & ~folds
+
+
+def broad_light(
+    scene: np.ndarray, det: np.ndarray, clean: np.ndarray, bounds: tuple[float, float]
+) -> np.ndarray:
+    """Scene / our render on ``clean`` paper, blurred far beyond glyph size, exposure-neutral
+    and clamped to ``bounds``: only broad light survives (HxW)."""
+    h, w = clean.shape
+    ratio = (scene @ look.LUMA) / np.maximum(det @ look.LUMA, 0.05)
+    k = max(1, round(max(h, w) / 512))  # measured on a small copy
+    sigma = AI_LIGHT_SIGMA * max(h, w) / k
+    m = clean[::k, ::k].astype(np.float32)
+    num = ndimage.gaussian_filter(ratio[::k, ::k] * m, sigma)
+    den = ndimage.gaussian_filter(m, sigma)
+    small = np.where(den > 1e-3, num / np.maximum(den, 1e-3), 1.0)
+    if (m > 0).any():
+        small = small / max(float(np.median(small[m > 0])), 1e-3)
+    small = np.clip(small, *bounds).astype(np.float32)
+    return np.asarray(Image.fromarray(small).resize((w, h), Image.BILINEAR), np.float32)
+
+
+def ai_light(
+    scene: np.ndarray, det: np.ndarray, L: Layers, sil: np.ndarray
+) -> tuple[np.ndarray, dict]:
+    """A smooth, neutral, clamped light map (HxW) from the model's image, or ones.
+
+    Measured only on clean paper and blurred far beyond glyph size, so the model's print,
+    texture and edges cannot reach the package; exposure-neutral, so the Figma colours hold.
+    """
+    h, w = sil.shape
+    ones = np.ones((h, w), np.float32)
+    iou = model_board_iou(scene, sil)
+    info = {"ai_iou": round(iou, 3)}
+    if iou < AI_MIN_IOU:
+        return ones, {**info, "ai_used": False, "ai_reason": "board_mismatch"}
+    clean = clean_paper(L, sil)
+    if clean.sum() < AI_MIN_CLEAN * max(1, int((sil >= 0.999).sum())):
+        return ones, {**info, "ai_used": False, "ai_reason": "too_little_clean_paper"}
+    light = broad_light(scene, det, clean, AI_LIGHT_RANGE)
+    light = 1 + (light - 1) * (sil >= 0.999)  # only inside the board, never on its outline
+    return light, {**info, "ai_used": True}
+
+
+def run_generate(ctx: JobContext, vid: str, mode: FlatMode | None = None) -> dict:
+    """Step 2: one flat, unfolded render at the final size, on black.
+
+    The print, board, cuts, folds and background are deterministic (see ``shading``). In
+    ``ai_appearance`` mode the image model may only add a gentle light map (``ai_light``).
     """
     pid = ctx.project_id
     if repo.get("versions", vid) is None:
         raise ApiError(404, "VERSION_NOT_FOUND", "버전을 찾을 수 없습니다.")
     spec = specs.load(repo.project_or_404(pid))
-
-    ctx.stage("render", "running")
-    w, h = gen_size(spec)
-    long_edge = max(w, h)
-    base_img, sil, _ = render_image(pid, spec, long_edge)
-    base = Image.fromarray(base_img).convert("RGB").resize((w, h), Image.LANCZOS)
-    prompt = flat_prompt(pid, spec)
-    ctx.stage("render", "done")
-    ctx.check_cancel()
-
-    ctx.stage("model", "running")
-    req = GenerationRequest(
-        prompt=prompt,
-        images=[
-            ("Image 1 — exact Figma print, final structure:", base),
-            ("Image 2 — visual reference (look only):", Image.open(FLAT_LOOK_IMAGE).convert("RGB")),
-        ],
-        width=w,
-        height=h,
-    )
-    result = providers.PROVIDER.generate(req, IMAGE_MODEL.model_id)
-    ctx.stage("model", "done")
-    ctx.check_cancel()
-
-    ctx.stage("composite", "running")
+    mode = mode or get_settings().flat_render_mode
+    long_edge = get_settings().flat_long_edge
     vdir = repo.project_dir(pid) / "versions"
     vdir.mkdir(exist_ok=True)
-    result.image.save(vdir / f"{vid}_raw.png")
-    comp = composite(base_img, sil, result.image, pid, spec, long_edge)
-    ctx.stage("composite", "done")
+
+    ctx.stage("render", "running")
+    layers = get_layers(pid, spec, long_edge, FLAT_LOOK.lighting.margin)
+    parts = shading.render_parts(layers, FLAT_LOOK)
+    det = shading.to8(parts.rgb)
+    Image.fromarray(det).save(vdir / f"{vid}_deterministic.png")
+    h, w = det.shape[:2]
+    ctx.stage("render", "done", {"size": [w, h], "mode": mode})
+    ctx.check_cancel()
+
+    light = np.ones((h, w), np.float32)
+    info: dict = {"ai_used": False}
+    usage: dict = {}
+    if mode == "ai_appearance":
+        ctx.stage("model", "running")
+        pad = provider_preview(det, spec)
+        req = GenerationRequest(
+            prompt=flat_prompt(pid, spec),
+            images=[
+                ("Image 1 — exact Figma print and die-cut structure (final):", pad.image),
+                (
+                    "Image 2 — photograph for paperboard and lighting only:",
+                    Image.open(FLAT_LOOK_IMAGE).convert("RGB"),
+                ),
+            ],
+            width=pad.image.width,
+            height=pad.image.height,
+        )
+        result = providers.PROVIDER.generate(req, IMAGE_MODEL.model_id)
+        usage = result.usage
+        result.image.save(vdir / f"{vid}_raw.png")
+        ctx.stage("model", "done")
+        ctx.check_cancel()
+        scene = registered(result.image, pad, w, h)
+        light, info = ai_light(scene, parts.rgb, layers, parts.sil)
+    else:
+        ctx.stage("model", "skipped")
+
+    ctx.stage("composite", "running")
+    gain = parts.gain * light
+    board = np.clip(parts.print_rgb * gain[..., None], 0, 1)
+    # Outside the board: our black ground and contact shadow, never the model's pixels.
+    s = parts.sil[..., None]
+    final = shading.to8(parts.background * (1 - s) + board * s)
+    print8 = shading.to8(parts.print_rgb)
+    ctx.stage("composite", "done", info)
 
     ctx.stage("verify", "running")
-    check = verify(comp, sil)
+    check = look.verify_flat(
+        final,
+        print8,
+        parts.sil,
+        gain,
+        layers.artwork[..., 3],
+        background=shading.hex_rgb(FLAT_LOOK.lighting.background_color),
+        colour_regions=figma_colour_regions(pid, layers, print8),
+        px_per_mm=layers.px_per_mm,
+    )
+    check.update(info, mode=mode, size=[w, h])
     ctx.stage("verify", "done", check)
     _, crop = frame(spec, long_edge, FLAT_LOOK.lighting.margin)
     deliver(
         pid,
         vid,
-        comp.image,
+        final,
         check,
         frame_json={"origin": [crop[0], crop[1]], "size": [crop[2] - crop[0], crop[3] - crop[1]]},
-        usage_json=result.usage,
+        usage_json=usage,
     )
     return {"version_id": vid}
 
@@ -470,35 +616,38 @@ def composite(
     spec: Specification,
     long_edge: int,
 ) -> Composited:
-    """Scene and the board's surface photographed by the model; print from the PDF.
+    """Step 3, flat form: the reference scene from the model around our deterministic board.
 
-    The package is our print x the model's photographed board surface (fibres, sheen, folds,
-    light). The model's own print is discarded; around print edges the surface is filled in
-    from the surrounding board. See app/render/surface.py.
+    The package is our print x the deterministic paper gain x a smooth, neutral light map from
+    the scene (``ai_light``-style, no glyph-scale transfer), so the model's own print, texture
+    and edges never reach it. Outside the exact silhouette the scene is kept: it is the
+    reference's world.
     """
     h, w = base_img.shape[:2]
     scene = np.asarray(cover(raw, w, h)).astype(np.float32) / 255
     layers = get_layers(pid, spec, long_edge, FLAT_LOOK.lighting.margin)
-    m = FLAT_LOOK.material
-    print_rgb = shading.print_surface(layers, m)
-    gain, edges, valley = surface.transfer(
-        print_rgb,
-        scene,
-        sil,
-        layers.px_per_mm,
-        ink=layers.artwork[..., 3],
-        folds=layers.crease,
-    )
-    # Ink sits in the paper: slightly starved in the board's valleys.
-    alpha = layers.artwork[..., 3] * (1 - surface.INK_STARVE * valley)
-    print8 = (np.clip(shading.print_surface(layers, m, alpha), 0, 1) * 255 + 0.5).astype(np.uint8)
-    pkg = np.clip(print8.astype(np.float32) / 255 * gain, 0, 1)
+    parts = shading.render_parts(layers, FLAT_LOOK)
+    light = scene_light(scene, parts.rgb, layers, sil)
+    gain = parts.gain * light
+    print8 = shading.to8(parts.print_rgb)
+    pkg = np.clip(print8.astype(np.float32) / 255 * gain[..., None], 0, 1)
     t_img, _, _ = render_image(pid, spec, long_edge, transparent=True)
     shadow = np.clip(t_img[..., 3].astype(np.float32) / 255 - sil, 0, 1)
     s = sil[..., None]
     out = scene * (1 - shadow[..., None]) * (1 - s) + pkg * s
     regions = figma_colour_regions(pid, layers, print8)
-    return Composited((out * 255 + 0.5).astype(np.uint8), print8, gain, edges, scene, regions)
+    edges = surface.print_edges(parts.print_rgb, sil, layers.px_per_mm)
+    gain3 = np.repeat(gain[..., None], 3, axis=-1)
+    return Composited(shading.to8(out), print8, gain3, edges, scene, regions)
+
+
+def scene_light(scene: np.ndarray, det: np.ndarray, L: Layers, sil: np.ndarray) -> np.ndarray:
+    """Broad scene light on the board for a merge: like ``ai_light`` but without the black
+    ground check (the reference's world is not black), wider range for a real scene."""
+    clean = clean_paper(L, sil)
+    if clean.sum() < AI_MIN_CLEAN * max(1, int((sil >= 0.999).sum())):
+        clean = sil >= 0.999
+    return broad_light(scene, det, clean, look.LIGHT_RANGE)
 
 
 def figma_colour_regions(pid: str, layers: Layers, print8: np.ndarray) -> list:
@@ -520,12 +669,11 @@ def figma_colour_regions(pid: str, layers: Layers, print8: np.ndarray) -> list:
         r1 = min(h, int(np.ceil((y1 - oy) * layers.scale)))
         if c1 - c0 < 3 or r1 - r0 < 3:
             continue
-        box = np.zeros((h, w), bool)
-        box[r0:r1, c0:c1] = True
         # The item's own pixels: inside its box and drawn in its colour (glyph interiors).
-        close = box & (look.delta_e(rgb, target) < 8)
-        close = ndimage.binary_erosion(close, iterations=1)
-        if close.sum() >= 20:
+        near = ndimage.binary_erosion(look.delta_e(rgb[r0:r1, c0:c1], target) < 8, iterations=1)
+        if near.sum() >= 20:
+            close = np.zeros((h, w), bool)
+            close[r0:r1, c0:c1] = near
             out.append((target, close))
     return out
 

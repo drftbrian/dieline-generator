@@ -7,15 +7,18 @@ API contract (``GET /api/jobs/:id``) stays the same if this moves to a separate 
 from __future__ import annotations
 
 import logging
+import threading
 import traceback
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 
 from app.errors import ApiError
 from app.storage import repo
 
 log = logging.getLogger(__name__)
 _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="job")
+_running: set[Future] = set()
+_lock = threading.Lock()
 
 STAGES = {
     "analyze": ["validate", "preview", "extract", "separations", "structure", "render"],
@@ -117,7 +120,23 @@ def submit(job: dict, fn: Callable[[JobContext], dict | None]) -> None:
                 },
             )
 
-    _pool.submit(run)
+    fut = _pool.submit(run)
+    with _lock:
+        _running.add(fut)
+    fut.add_done_callback(_forget)
+
+
+def _forget(fut: Future) -> None:
+    with _lock:
+        _running.discard(fut)
+
+
+def drain(timeout: float = 120) -> None:
+    """Wait for submitted jobs to finish (tests: no job may outlive its data directory)."""
+    with _lock:
+        pending = list(_running)
+        _running.clear()
+    wait(pending, timeout=timeout)
 
 
 def _fail(ctx: JobContext, error: dict) -> None:

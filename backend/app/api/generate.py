@@ -20,7 +20,7 @@ from app.storage import repo
 router = APIRouter(tags=["generate"])
 
 
-def _check_can_start(project: dict) -> None:
+def _check_can_start(project: dict, needs_model: bool = True) -> None:
     if project["status"] != "ready":
         raise ApiError(
             409,
@@ -28,7 +28,7 @@ def _check_can_start(project: dict) -> None:
             "패키지 구조를 먼저 확인해주세요.",
             hint="구조 확인 화면에서 남은 항목을 확정해주세요.",
         )
-    if not providers.PROVIDER.available():
+    if needs_model and not providers.PROVIDER.available():
         raise ApiError(
             503,
             "PROVIDER_UNAVAILABLE",
@@ -48,6 +48,7 @@ def _start(
     pid: str,
     job_type: str,
     work: Callable[[JobContext, str], dict],
+    settings: dict | None = None,
     **fields,
 ) -> GenerateOut:
     """A new version row plus the background job that fills it."""
@@ -71,7 +72,7 @@ def _start(
             "provider": IMAGE_MODEL.provider,
             "model_id": IMAGE_MODEL.model_id,
             "mode": "artwork_locked",
-            "settings_json": {"pipeline": pipeline.PIPELINE},
+            "settings_json": {"pipeline": pipeline.PIPELINE, **(settings or {})},
             "spec_version": spec.version,
             "job_id": job["id"],
             "usage_json": None,
@@ -115,11 +116,19 @@ def _start(
 
 @router.post("/projects/{pid}/generate", response_model=GenerateOut, status_code=202)
 def generate(pid: str, request: Request, body: GenerateIn | None = None):
-    """Step 2: the flat, unfolded photoreal render in the fixed look."""
+    """Step 2: the flat, unfolded render in the fixed look (deterministic by default)."""
     if replay := idempotent_replay(request, f"generate:{pid}"):
         return replay
-    _check_can_start(repo.project_or_404(pid))
-    out = _start(pid, "generate", pipeline.run_generate, kind="flat", reference_ids=[])
+    mode = (body.mode if body else None) or get_settings().flat_render_mode
+    _check_can_start(repo.project_or_404(pid), needs_model=mode == "ai_appearance")
+    out = _start(
+        pid,
+        "generate",
+        lambda ctx, vid: pipeline.run_generate(ctx, vid, mode),
+        kind="flat",
+        reference_ids=[],
+        settings={"flat_mode": mode},
+    )
     remember(request, f"generate:{pid}", 202, out.model_dump())
     return out
 

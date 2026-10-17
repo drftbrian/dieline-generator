@@ -94,7 +94,13 @@ def version_out(v: dict) -> VersionOut:
         kind=kind,
         legacy=is_legacy(v),
         status=v["status"],
-        provider_label=model.label if model else f"{v['provider']} (legacy)",
+        provider_label=(
+            "코드 렌더 (AI 없음)"
+            if (v.get("settings_json") or {}).get("flat_mode") == "deterministic"
+            else model.label
+            if model
+            else f"{v['provider']} (legacy)"
+        ),
         model_id=v["model_id"],
         flat_version_id=v.get("flat_version_id") if kind == "merge" else None,
         reference_id=params.get("reference_id") if kind == "merge" else None,

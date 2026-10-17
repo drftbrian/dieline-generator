@@ -218,3 +218,140 @@ def verify(
         "colour_delta_e_median": round(overall, 2),
         "colour_delta_e_max": round(worst, 2),
     }
+
+
+FLAT_GAIN_RANGE = (0.8, 1.1)  # paper, fold scores, light and the edge catch-light on the print
+FLAT_TEXTURE_MAX = 0.012  # fibre variation on clean paper (std of the gain's fine detail)
+FLAT_CLOUD_MAX = 0.004  # mottling between fibre and light scale (1-10 mm): no cloudy patches
+
+
+def verify_flat(
+    final: np.ndarray,
+    print8: np.ndarray,
+    sil: np.ndarray,
+    gain: np.ndarray,
+    ink: np.ndarray,
+    *,
+    background: np.ndarray,
+    colour_regions: list[tuple[np.ndarray, np.ndarray]] | None = None,
+    px_per_mm: float = 4.0,
+) -> dict:
+    """Deterministic quality gate of the flat render (step 2).
+
+    - print: inside the board ``final == clip(print x gain)`` to 8-bit rounding, with an
+      achromatic ``gain`` (2-D) in a narrow range: the print is never redrawn, moved or tinted;
+    - halo: the gain carries no copy of the print's edges, at its place or displaced
+      (no glow, ghost or frosted border around type);
+    - background: outside the board it is the background colour, so there is exactly one
+      outline and no echo, grey cast or invented board edge;
+    - texture: fibres are subtle and there are no cloudy patches on clean paper;
+    - colour: Figma text/graphic colours and the overall print hold.
+    """
+    solid = sil >= 0.999
+    total = int(solid.sum())
+    f = final[..., :3].astype(np.float32) / 255
+    b = print8[..., :3].astype(np.float32) / 255
+    g = gain.astype(np.float32)
+    expected = np.clip(b * g[..., None], 0, 1)
+    residual = float(np.abs(f - expected).max(axis=-1)[solid].max()) if total else 0.0
+    exact = residual <= 1.5 / 255
+    gl = g[solid] if total else np.ones(1, np.float32)
+    in_range = FLAT_GAIN_RANGE[0] <= float(gl.min()) and float(gl.max()) <= FLAT_GAIN_RANGE[1]
+
+    # Halo: correlation of the gain's fine detail with the print's, along the print edges.
+    lum = ndimage.gaussian_filter(b @ LUMA, 0.7)
+    grad = np.hypot(ndimage.sobel(lum, 0), ndimage.sobel(lum, 1)) / 8
+    edges = ndimage.binary_dilation(grad > 0.012, iterations=2) & solid
+    ghost = 0.0
+    if edges.sum() > 100:
+        hg = (g - ndimage.gaussian_filter(g, 2))[edges]
+        hb = (lum - ndimage.gaussian_filter(lum, 2))[edges]
+        if hg.std() > 1e-6 and hb.std() > 1e-6:
+            ghost = abs(float(np.corrcoef(hg, hb)[0, 1]))
+    echo = print_echo(g, b, solid)
+
+    # Background: one outline, nothing outside it but the background colour (the contact
+    # shadow can only darken it).
+    outside = sil <= 1e-3
+    bg_luma = float(np.asarray(background, np.float32) @ LUMA)
+    out_luma = (f @ LUMA)[outside]
+    background_max = float(out_luma.max()) if out_luma.size else bg_luma
+    echo_px = int((out_luma > bg_luma + 2 / 255).sum())
+
+    # Texture on the board away from print edges, folds and the cut edge. Fibres are measured
+    # at full size; mottling (1-10 mm, "cloudy patches") on a smaller copy.
+    print_zone = ndimage.binary_dilation(edges, iterations=max(2, round(px_per_mm)))
+    clean = ndimage.binary_erosion(solid, iterations=max(2, round(1.5 * px_per_mm)))
+    clean &= ~print_zone
+    hp_g = g - ndimage.gaussian_filter(g, max(1.0, 0.5 * px_per_mm))
+    k = max(1, round(px_per_mm / 2))
+    gs, cs = g[::k, ::k], clean[::k, ::k]
+    mm = px_per_mm / k
+    band = ndimage.gaussian_filter(gs, max(1.0, mm)) - ndimage.gaussian_filter(
+        gs, max(2.0, 10 * mm)
+    )
+    cs &= ~ndimage.binary_dilation(np.abs(band) > 0.01, iterations=max(2, round(mm)))  # folds
+    clean &= np.repeat(np.repeat(cs, k, 0), k, 1)[: clean.shape[0], : clean.shape[1]]
+    texture = float(hp_g[clean].std()) if clean.sum() > 100 else 0.0
+    cloud = float(band[cs].std()) if cs.sum() > 100 else 0.0
+    # Achromatic: the gain is one value per pixel, so unprinted paper stays neutral.
+    paper = clean & (ink < 0.02)
+    chroma = (
+        float(np.abs(f[paper] - f[paper].mean(axis=-1, keepdims=True)).max())
+        if paper.sum() > 100
+        else 0.0
+    )
+
+    # Colour: overall against the print, and each solid Figma colour against its exact value.
+    sig = max(4.0, 0.01 * max(f.shape[:2]))
+    k = max(1, round(max(f.shape[:2]) / 1024))  # compared as areas, on a smaller copy
+    fs, bs = f[::k, ::k], b[::k, ::k]
+    inner = ndimage.binary_erosion(solid[::k, ::k], iterations=8)
+    area = lambda v: ndimage.gaussian_filter(v, (sig / k, sig / k, 0))  # noqa: E731
+    overall = float(np.median(delta_e(area(fs)[inner], area(bs)[inner]))) if inner.any() else 0.0
+    worst = 0.0
+    for target, mask in colour_regions or []:
+        region = mask & solid
+        if region.sum() < 20:
+            continue
+        worst = max(worst, float(delta_e(np.median(f[region], axis=0), np.asarray(target))))
+    colour_ok = overall <= 3 and worst <= 6
+
+    hp = lambda v: v - ndimage.gaussian_filter(v, 2)  # noqa: E731
+    inner = ndimage.binary_erosion(solid, iterations=6)
+    inner = inner if inner.sum() > 100 else solid
+    hf, he = hp(f @ LUMA)[inner], hp(expected @ LUMA)[inner]
+    corr = float(np.corrcoef(hf, he)[0, 1]) if hf.std() > 1e-6 and he.std() > 1e-6 else 1.0
+    changed = int(
+        (np.abs(final[..., :3].astype(int) - print8[..., :3].astype(int)).max(-1) > 0)[solid].sum()
+    )
+
+    checks = {
+        "print_exact": exact and corr >= 0.98,
+        "gain_in_range": in_range,
+        "no_halo": ghost < 0.2 and echo < 0.3,
+        "background_clean": echo_px == 0,
+        "texture_subtle": texture <= FLAT_TEXTURE_MAX and cloud <= FLAT_CLOUD_MAX,
+        "colour_ok": colour_ok,
+    }
+    return {
+        "match": all(checks.values()),
+        "checks": checks,
+        "protected_px": total,
+        "changed_px": changed,
+        "changed_ratio": round(changed / max(total, 1), 6),
+        "detail_match": round(corr, 4),
+        "light_applied": bool(np.abs(gl - 1).max() > 0.01),
+        "residual": round(residual * 255, 2),
+        "min_gain": round(float(gl.min()), 3),
+        "max_gain": round(float(gl.max()), 3),
+        "print_ghost": round(ghost, 3),
+        "print_echo": round(echo, 3),
+        "background_max": round(background_max * 255, 2),
+        "outside_echo_px": echo_px,
+        "texture_std": round(texture, 4),
+        "cloud_std": round(cloud, 4),
+        "paper_chroma": round(chroma * 255, 2),
+        "colour_delta_e_median": round(overall, 2),
+        "colour_delta_e_max": round(worst, 2),
+    }

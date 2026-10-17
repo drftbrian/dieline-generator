@@ -349,7 +349,7 @@ export interface paths {
         put?: never;
         /**
          * Generate
-         * @description Step 2: the flat, unfolded photoreal render in the fixed look.
+         * @description Step 2: the flat, unfolded render in the fixed look (deterministic by default).
          */
         post: operations["generate_api_projects__pid__generate_post"];
         delete?: never;
@@ -671,9 +671,13 @@ export interface components {
         };
         /**
          * GenerateIn
-         * @description Step 2 takes no options: the look is fixed.
+         * @description Step 2. The look is fixed; ``mode`` overrides the server's FLAT_RENDER_MODE:
+         *     "deterministic" (no image model) or "ai_appearance" (the model may add gentle light).
          */
-        GenerateIn: Record<string, never>;
+        GenerateIn: {
+            /** Mode */
+            mode?: ("deterministic" | "ai_appearance") | null;
+        };
         /** GenerateOut */
         GenerateOut: {
             /** Job Id */
@@ -1189,6 +1193,30 @@ export interface components {
             colour_delta_e_median?: number | null;
             /** Colour Delta E Max */
             colour_delta_e_max?: number | null;
+            /** Checks */
+            checks?: {
+                [key: string]: boolean;
+            } | null;
+            /** Mode */
+            mode?: ("deterministic" | "ai_appearance") | null;
+            /** Size */
+            size?: number[] | null;
+            /** Ai Used */
+            ai_used?: boolean | null;
+            /** Ai Reason */
+            ai_reason?: string | null;
+            /** Ai Iou */
+            ai_iou?: number | null;
+            /** Background Max */
+            background_max?: number | null;
+            /** Outside Echo Px */
+            outside_echo_px?: number | null;
+            /** Texture Std */
+            texture_std?: number | null;
+            /** Cloud Std */
+            cloud_std?: number | null;
+            /** Paper Chroma */
+            paper_chroma?: number | null;
         };
         /** VersionOut */
         VersionOut: {

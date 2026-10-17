@@ -124,8 +124,12 @@ def test_references_crud(client):
 
 def test_ai_features_report_missing_keys(client):
     pid, _ = upload(client, "named_spot")
-    res = client.post(f"/api/projects/{pid}/generate", json={})
+    # The deterministic flat render needs no image model; the AI appearance mode does.
+    res = client.post(f"/api/projects/{pid}/generate", json={"mode": "ai_appearance"})
     assert res.status_code == 503 and res.json()["error"]["code"] == "PROVIDER_UNAVAILABLE"
+    res = client.post(f"/api/projects/{pid}/generate", json={})
+    assert res.status_code == 202, res.json()
+    assert wait_job(client, res.json()["job_id"])["status"] == "done"
     rid = client.post(
         f"/api/projects/{pid}/references", files={"file": ("r.png", _png(), "image/png")}
     ).json()["id"]
@@ -161,18 +165,19 @@ class ShiftingProvider(FakeProvider):
 
 
 def test_a_result_that_alters_the_print_is_never_delivered(client, monkeypatch):
+    from app.render import look
     from app.services import pipeline
 
-    # Simulate a broken restore: the model's own (moved) image reaches the package.
-    def leaky(base_img, sil, raw, pid, spec, long_edge):
-        h, w = base_img.shape[:2]
-        scene = np.asarray(pipeline.cover(raw, w, h))
-        return pipeline.Composited(scene, base_img[..., :3], np.ones((h, w, 3), np.float32))
+    # Simulate a broken light map: the model's own (moved) image reaches the package at
+    # glyph scale instead of as broad light.
+    def leaky(scene, det, L, sil):
+        ratio = (scene @ look.LUMA) / np.maximum(det @ look.LUMA, 0.05)
+        return np.clip(ratio, 0.5, 1.5).astype(np.float32), {"ai_used": True}
 
     monkeypatch.setattr(providers, "PROVIDER", ShiftingProvider())
-    monkeypatch.setattr(pipeline, "composite", leaky)
+    monkeypatch.setattr(pipeline, "ai_light", leaky)
     pid, _ = upload(client, "named_spot")
-    res = client.post(f"/api/projects/{pid}/generate", json={})
+    res = client.post(f"/api/projects/{pid}/generate", json={"mode": "ai_appearance"})
     job = wait_job(client, res.json()["job_id"])
     assert job["status"] == "failed" and job["error"]["code"] == "ARTWORK_MISMATCH"
     [v] = client.get(f"/api/projects/{pid}/history").json()["versions"]
@@ -180,41 +185,70 @@ def test_a_result_that_alters_the_print_is_never_delivered(client, monkeypatch):
     assert v["image_url"] is None and v["download_url"] is None
 
 
-def test_flat_render_protects_artwork(client, monkeypatch):
-    from app.services.pipeline import FLAT_LOOK_IMAGE
-
+def test_flat_render_is_deterministic_by_default(client, monkeypatch):
     fake = FakeProvider()
     monkeypatch.setattr(providers, "PROVIDER", fake)
     pid, _ = upload(client, "named_spot")
     res = client.post(f"/api/projects/{pid}/generate", json={})
     assert res.status_code == 202, res.json()
     job = wait_job(client, res.json()["job_id"])
-    assert job["status"] == "done", (
-        job.get("error"),
-        client.get(f"/api/projects/{pid}/history").json()["versions"][0]["verify"],
-    )
-    assert [s["key"] for s in job["stages"]] == ["render", "model", "composite", "verify"]
-
-    # Image 1 = our exact print, Image 2 = the fixed look reference; Master Prompt A.
-    req = fake.requests[0]
-    assert [label.split(" — ")[0] for label, _ in req.images] == ["Image 1", "Image 2"]
-    look = np.asarray(Image.open(FLAT_LOOK_IMAGE).convert("RGB"))
-    assert np.array_equal(np.asarray(req.images[1][1]), look)
-    assert req.prompt.startswith("# MASTER PROMPT — FIGMA TO PHOTOREALISTIC PACKAGING DIELINE")
-    assert "$" not in req.prompt
+    assert job["status"] == "done", job.get("error")
+    assert [(s["key"], s["status"]) for s in job["stages"]] == [
+        ("render", "done"),
+        ("model", "skipped"),
+        ("composite", "done"),
+        ("verify", "done"),
+    ]
+    assert fake.requests == []  # no image model involved
 
     [v] = client.get(f"/api/projects/{pid}/history").json()["versions"]
     assert v["number"] == 1 and v["status"] == "done"
     assert v["kind"] == "flat" and v["legacy"] is False
-    # Even though the fake model painted over everything, the print is the PDF render;
-    # only the scene's broad light and the board's surface may reach it.
-    assert v["verify"]["match"] is True and v["verify"]["detail_match"] >= 0.98, str(v["verify"])
-    assert client.get(f"/api/projects/{pid}/versions/{v['id']}").json()["id"] == v["id"]
+    assert v["provider_label"] == "코드 렌더 (AI 없음)"
+    assert v["verify"]["match"] is True, v["verify"]
+    assert v["verify"]["mode"] == "deterministic" and v["verify"]["ai_used"] is False
+    from app.config import get_settings
+    from app.storage import repo
+
+    vdir = repo.project_dir(pid) / "versions"
+    final = Image.open(vdir / f"{v['id']}.png")
+    assert max(final.size) == get_settings().flat_long_edge
+    assert (vdir / f"{v['id']}_deterministic.png").exists()
     dl = client.get(v["download_url"])
     assert dl.status_code == 200 and dl.headers["content-type"] == "image/png"
     assert 'filename="named_spot_v1_flat.png"' in dl.headers["content-disposition"]
     assert client.delete(f"/api/projects/{pid}/versions/{v['id']}").status_code == 204
     assert client.get(f"/api/projects/{pid}/history").json()["versions"] == []
+
+
+def test_ai_appearance_cannot_reach_the_print(client, monkeypatch):
+    from app.services.pipeline import FLAT_LOOK_IMAGE
+
+    fake = FakeProvider()
+    monkeypatch.setattr(providers, "PROVIDER", fake)
+    pid, _ = upload(client, "named_spot")
+    res = client.post(f"/api/projects/{pid}/generate", json={"mode": "ai_appearance"})
+    job = wait_job(client, res.json()["job_id"])
+    assert job["status"] == "done", job.get("error")
+    assert [s["key"] for s in job["stages"]] == ["render", "model", "composite", "verify"]
+
+    # Image 1 = our exact print, Image 2 = the fixed look reference; appearance-only prompt.
+    req = fake.requests[0]
+    assert [label.split(" — ")[0] for label, _ in req.images] == ["Image 1", "Image 2"]
+    look = np.asarray(Image.open(FLAT_LOOK_IMAGE).convert("RGB"))
+    assert np.array_equal(np.asarray(req.images[1][1]), look)
+    assert req.prompt.startswith("# Nano Banana Pro — FLAT DIELINE APPEARANCE GUIDE")
+    assert "$" not in req.prompt
+    # The preview has the provider's aspect ratio, so its answer maps back without cropping.
+    from app.ai.providers.gemini import nearest_ratio
+
+    rw, rh = (int(x) for x in nearest_ratio(req.width, req.height).split(":"))
+    assert abs(req.width / req.height - rw / rh) < 0.01
+
+    # The fake painted noise everywhere: its board does not match ours, so nothing of it is used.
+    [v] = client.get(f"/api/projects/{pid}/history").json()["versions"]
+    assert v["verify"]["match"] is True, v["verify"]
+    assert v["verify"]["ai_used"] is False and v["verify"]["ai_reason"] == "board_mismatch"
 
 
 def test_project_lifecycle(client):

@@ -20,12 +20,16 @@ English summary: [아래 English 섹션](#english)을 보세요.
 ### ② 플랫 렌더
 
 - 펼친 상태의 패키지를 **위에서 내려다본 사진처럼** 한 장 만듭니다.
-- 고정된 룩: 검은 배경, 정면 탑뷰, 무광 흰 판지, 은은한 접는 자국, 뚫린 구멍(창·슬롯)은 검게 보임.
-- 이미지 모델(Gemini)에 보내는 것:
-  - 프롬프트: Master Prompt A (`backend/app/ai/prompts/flat_render.md`)
-  - Image 1: 우리 인쇄를 컴퓨터가 정확히 그린 평면 이미지 (결정적 렌더, 매번 똑같이 나옴)
-  - Image 2: `flat_look.png` (룩 참고용 사진. "이런 느낌으로"만 참고하고 그 안의 브랜드는 따라 하지 않음)
-
+- 고정된 룩 (`flat_look.png`를 기준으로 맞춤): 검은 배경, 정면 탑뷰, 무광 판지, 은은한 종이결, 접는선은 얇은 홈 + 빛 받는 쪽 밝은 선, 뚫린 구멍(창·슬롯)은 검게 보임.
+- **기본은 AI 없이 코드가 그립니다** (`FLAT_RENDER_MODE=deterministic`).
+  - Figma/PDF 벡터를 **최종 크기(기본 4096px)에서 한 번** 래스터화합니다. AI 이미지를 키운 게 아니라서 작은 한글도 선명합니다.
+  - 종이결·접는 자국·빛은 **회색조 밝기(gain)만** 곱합니다. 글자·로고·그라데이션의 모양과 색은 그대로입니다.
+  - 칼선 외곽·구멍·검은 배경은 Figma 구조에서 정확히 나옵니다.
+  - 같은 입력이면 **매번 똑같은 이미지**가 나옵니다. Gemini 키가 없어도 됩니다.
+- 선택: **AI 조명 모드** (`FLAT_RENDER_MODE=ai_appearance`, 또는 API에서 `{"mode": "ai_appearance"}`).
+  - Gemini(Nano Banana Pro)에 `flat_render.md` 프롬프트 + Image 1(우리 렌더) + Image 2(`flat_look.png`)를 보냅니다.
+  - 모델 결과에서는 **글자보다 훨씬 큰 크기의 부드러운 빛 얼룩만** 가져옵니다 (최대 −4%~+3%). 모델이 그린 글자·종이결·테두리·배경은 버립니다.
+  - 모델이 판지 모양을 바꾸거나 엉뚱한 곳에 그렸으면 **빛도 쓰지 않고** 코드 렌더 그대로 냅니다.
 ### ③ 레퍼런스 합성
 
 - 사용자가 **레퍼런스 사진 한 장**을 끌어다 놓습니다.
@@ -72,16 +76,18 @@ AI 이미지 모델은 글자를 잘 틀립니다. 그래서 이 앱은 **모델
 
 비유하면, 모델은 "조명과 종이 질감만 칠하는 화가"이고, 글자와 그림은 우리가 마지막에 **원본 스티커를 그대로 다시 붙이는** 셈입니다.
 
-1. 모델이 사진을 만듭니다.
-2. 앱이 모델 결과에서 **빛과 판지 표면 느낌만** 뽑아냅니다. 모델이 그린 글자는 버립니다.
-3. 원본 인쇄(PDF에서 정확히 그린 것)에 그 빛을 곱해서 **다시 합성**합니다 (`services/pipeline.py`의 `composite`, 입체는 `services/merge.py`의 `composite`).
-4. **`verify`가 모든 결과를 검사합니다** (`render/look.py`). 통과해야만 결과가 저장되고 화면에 보입니다. 검사 내용:
-   - 결과 = 원본 인쇄 × 빛 이 거의 정확히 일치하는가 (8비트 기준 1.5단계 이내)
-   - 빛 지도가 부드러운가 (글자 크기의 무늬가 섞여 있으면 = 모델 글자가 새어 들어온 것)
-   - 빛의 밝기 범위가 정상인가
-   - 디테일 상관도가 0.98 이상인가 (인쇄가 밀리거나 다시 그려지면 떨어짐)
-   - 색: 전체 색차(ΔE) 중앙값 3 이하, Figma에 지정된 각 글자/그래픽 색은 ΔE 6 이하
-5. **검사에 떨어지면** 그 버전은 `ARTWORK_MISMATCH`(422)로 실패 처리되고, **아무것도 전달되지 않습니다.** "다시 생성해주세요"라고 안내합니다.
+1. ② 플랫 렌더는 **인쇄를 원본 벡터에서 직접** 그립니다. 그 위에는 회색조 밝기(종이결·접는선·빛)만 곱하고, 바깥은 Figma 칼선 그대로의 검은 배경입니다. AI 모드여도 모델에서는 **부드러운 빛**만 가져옵니다.
+2. ③ 합성은 모델이 만든 장면(레퍼런스 세계) 위에, 우리 판지 자리에 **원본 인쇄 × 종이 밝기 × 장면의 부드러운 빛**을 다시 넣습니다 (`services/pipeline.py`의 `composite`, 입체는 `services/merge.py`의 `composite`).
+3. **모든 결과를 검사합니다.** 통과해야만 저장되고 화면에 보입니다.
+   - ② 플랫 렌더: `render/look.py`의 `verify_flat`
+     - 인쇄 일치: 결과 = 원본 인쇄 × 회색조 밝기 (8비트 기준 1.5단계 이내), 디테일 상관도 0.98 이상
+     - 밝기 범위 0.8~1.1
+     - 번짐(halo) 없음: 밝기 지도에 글자 윤곽이 같은 자리든 밀린 자리든 섞여 있지 않음
+     - 배경: 판지 밖은 정확히 검정, 두 번째 외곽선·회색 번짐 0픽셀
+     - 종이결: 은은함 (구름 얼룩 없음), 무채색
+     - 색: 전체 ΔE 중앙값 3 이하, Figma 지정 색 ΔE 6 이하
+   - ③ 합성: `render/look.py`의 `verify` (같은 원리, 장면 배경 허용)
+4. **검사에 떨어지면** 그 버전은 `ARTWORK_MISMATCH`(422)로 실패 처리되고, **아무것도 전달되지 않습니다.** "다시 생성해주세요"라고 안내합니다.
 
 진단용 파일은 `backend/data/projects/<프로젝트ID>/versions/`에 저장됩니다.
 
@@ -89,11 +95,18 @@ AI 이미지 모델은 글자를 잘 틀립니다. 그래서 이 앱은 **모델
 |---|---|---|
 | `<버전ID>.png` | 통과 시 | 최종 결과 (다운로드되는 파일) |
 | `<버전ID>_thumb.jpg` | 통과 시 | 썸네일 |
-| `<버전ID>_raw.png` | ②, ③ 모두 | 모델이 준 날것 그대로의 이미지 |
+| `<버전ID>_deterministic.png` | ② | AI 없이 코드가 그린 기준 렌더 |
+| `<버전ID>_raw.png` | ② AI 모드, ③ | 모델이 준 날것 그대로의 이미지 |
 | `<버전ID>_structure.png` | ③ 합성만 | 모델에 Image A로 보낸 것 (접힌 박스 또는 플랫 렌더) |
 | `<버전ID>_rejected.png` | 검사 실패 시 | 떨어진 합성 결과 (보여주지 않고 진단용으로만 보관) |
 
 검사 수치는 버전 정보의 `verify` 항목에서 볼 수 있습니다.
+
+**눈으로 확인하기 (QA 몽타주):** 원본·코드 렌더·모델 원본·밝기 지도·최종본과, 가장 작은 글자/가장 큰 글자/칼선+접는선의 400% 확대를 한 장으로 만듭니다.
+
+```
+cd backend && uv run python scripts/flat_qa.py <프로젝트ID> <버전ID> --compare <예전버전ID> --out qa.png
+```
 
 ---
 
@@ -110,8 +123,10 @@ AI 이미지 모델은 글자를 잘 틀립니다. 그래서 이 앱은 **모델
 
 ```
 ANTHROPIC_API_KEY=...   # Claude: 구조 제안, 패널 이름, 레퍼런스 읽기
-GEMINI_API_KEY=...      # Gemini: ②, ③ 이미지 생성
+GEMINI_API_KEY=...      # Gemini: ③ 합성, ② AI 조명 모드 (기본 ②에는 필요 없음)
 FIGMA_TOKEN=...         # Figma 개인 액세스 토큰 (권한: file_content:read)
+FLAT_RENDER_MODE=deterministic   # 선택: ai_appearance 로 바꾸면 ②에 AI 조명을 더함
+FLAT_LONG_EDGE=4096              # 선택: ② 결과의 긴 변 픽셀 (1024~8192)
 ```
 
 - 빈 줄(`KEY=`)은 "설정 안 됨"으로 취급합니다.
@@ -224,7 +239,7 @@ Dieline Generator turns a packaging dieline into photoreal images while keeping 
 **Three steps**
 
 1. **Source (Figma scan).** Paste a Figma frame link (main path; a small PDF upload remains as a fallback). The app analyzes geometry, cut/fold lines, exact text and fonts, logos and measurements, then you confirm the structure.
-2. **Flat render.** One flat, unfolded, top-down photoreal render: black background, matte white board, faint creases, cut holes showing black. Gemini receives `flat_render.md` plus [Image 1: the deterministic print render, Image 2: `flat_look.png` as a look reference].
+2. **Flat render.** One flat, unfolded, top-down render on black, deterministic by default (`FLAT_RENDER_MODE=deterministic`): the vectors are rasterized once at the final size (`FLAT_LONG_EDGE`, 4096), board fibres, fold scores, light and the edge catch-light are one achromatic gain over the print, and the silhouette, openings and black ground come from the Figma structure. Optional `ai_appearance` sends `flat_render.md` + [Image 1: our render, padded to the provider aspect; Image 2: `flat_look.png`] to Gemini and keeps only a smooth, clamped, neutral light map measured away from print edges, and only if the model's board matches ours. Gated by `look.verify_flat`; QA montage: `scripts/flat_qa.py`.
 3. **Reference merge.** Drop one reference photo. Claude reads it with `reference_guide.md` (category person / beverage / product_packaging, seven sections each, camera, light, and `packaging_form` flat|folded|none). Gemini then puts our approved flat render in place of the reference's packaging (`merge.md`). Form: auto follows `packaging_form` (`none` becomes folded), or override to flat/folded. Folded: `render/carton3d.py` folds the carton at Claude's camera; images are A folded carton, B reference, C flat render. Flat: A flat render, B reference.
 
 **Redline rule.** Outer outline = cut, inner lines = fold, inner closed loops = openings (rendered black). Layer or spot-colour names (`Dieline`, `Redline`, `칼선`, `Cut`, `Fold`, `Crease`, `접는선`…, see `backend/app/pdf/rules.py`) win; a single named cut layer holding everything is split by topology; unnamed lines are split by topology; uncertain closed loops wait for a human.

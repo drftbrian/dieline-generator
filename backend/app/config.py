@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
 
     max_concurrent_generations: int = 2
     preview_long_edge: int = 1200
+    # Step 2: "deterministic" (no image model) or "ai_appearance" (the model may add a gentle
+    # light map only). The flat render is rasterized from the vectors at this long edge.
+    flat_render_mode: Literal["deterministic", "ai_appearance"] = "deterministic"
+    flat_long_edge: int = Field(4096, ge=1024, le=8192)
 
     @field_validator("anthropic_api_key", "gemini_api_key", "figma_token", mode="before")
     @classmethod

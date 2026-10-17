@@ -146,7 +146,7 @@ class Material(BaseModel):
     caliper_mm: float = Field(0.46, ge=0.2, le=1.2)
     reflectivity: int = Field(8, ge=0, le=100)
     roughness: int = Field(70, ge=0, le=100)
-    texture: int = Field(5, ge=0, le=100)
+    texture: int = Field(20, ge=0, le=100)  # paper fibres: 20 = about +-1.4% (spec cap 1.5%)
     crease_depth: int = Field(30, ge=0, le=100)  # how pressed-in the folds look
 
 

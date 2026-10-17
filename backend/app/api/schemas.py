@@ -194,7 +194,10 @@ class ReferenceOut(BaseModel):
 
 
 class GenerateIn(BaseModel):
-    """Step 2 takes no options: the look is fixed."""
+    """Step 2. The look is fixed; ``mode`` overrides the server's FLAT_RENDER_MODE:
+    "deterministic" (no image model) or "ai_appearance" (the model may add gentle light)."""
+
+    mode: Literal["deterministic", "ai_appearance"] | None = None
 
 
 MergeForm = Literal["auto", "flat", "folded"]
@@ -226,6 +229,18 @@ class VerifyOut(BaseModel):
     print_echo: float | None = None  # displaced copy of the print (stereo ghost, <0.15)
     colour_delta_e_median: float | None = None  # package vs its print (CIE76, <=3)
     colour_delta_e_max: float | None = None  # worst Figma colour (CIE76, <=6)
+    # Step 2 flat render (look.verify_flat): each gate, and what was measured.
+    checks: dict[str, bool] | None = None
+    mode: Literal["deterministic", "ai_appearance"] | None = None
+    size: list[int] | None = None  # [w, h] px
+    ai_used: bool | None = None  # the image model's light map reached the board
+    ai_reason: str | None = None  # why it did not
+    ai_iou: float | None = None  # the model's board against ours
+    background_max: float | None = None  # brightest pixel outside the board (8-bit)
+    outside_echo_px: int | None = None  # pixels brighter than the background outside (0)
+    texture_std: float | None = None  # fibre variation on clean paper
+    cloud_std: float | None = None  # mottling at 1-10 mm on clean paper
+    paper_chroma: float | None = None  # colour cast of clean paper (8-bit)
 
 
 class VersionOut(BaseModel):

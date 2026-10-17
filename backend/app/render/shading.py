@@ -1,13 +1,14 @@
 """Deterministic board, light and background of the flat render.
 
 Same parameters always produce the same pixels. Artwork color is only *lit*, never redrawn:
-every operation on the printed surface is a per-pixel multiply/add over the PDF render, so
-typography, logos and layout stay exactly where the PDF put them.
+inside the board the image is ``clip(print x gain)`` with one achromatic gain per pixel, so
+typography, logos, gradients and layout stay exactly where and how the PDF put them.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage
@@ -16,8 +17,16 @@ from app.render.layers import Layers
 from app.spec.models import FLAT_LOOK, Look
 
 # Soft, even studio light: neutral colour, a faint fall-off across the sheet.
-GRADIENT = 0.05
-AMBIENT = 0.86
+GRADIENT = 0.04
+EXPOSURE = 0.975  # white board reads as paper white, not a glowing #FFF
+# Paper fibres: ``Material.texture`` 20 peaks at about +-1.4% brightness, the same on R, G, B.
+TEXTURE_PER_UNIT = 0.25
+INK_DAMP = 0.7  # fibres show this much less through ink
+EDGE_LIGHT = 0.04  # hairline catch-light on the light-facing cut edge
+# A fold score as in the reference photo, measured across a fold there: a thin groove about
+# 12% darker and next to it a bead about 6% brighter, together ~1.5 mm wide.
+CREASE_GROOVE = 0.10
+CREASE_BEAD = 0.05
 
 
 def hex_rgb(h: str) -> np.ndarray:
@@ -42,16 +51,22 @@ def value_noise(h: int, w: int, cell_px: float, seed: int = 7) -> np.ndarray:
 
 
 def crease_relief(L: Layers, m, light: tuple[float, float]) -> np.ndarray:
-    """Brightness offset of the folds (negative = darker), from ``Material.crease_depth``."""
-    k = m.crease_depth / 100
-    width = max(1.0, 0.5 * m.caliper_mm * L.px_per_mm)
-    valley = ndimage.gaussian_filter(L.crease, width)
-    valley = valley / max(float(valley.max()), 1e-6)
-    gy, gx = np.gradient(valley)
-    # Height is -valley, so a wall's normal points along +grad(valley); lit where it meets
-    # the light.
-    facing = (gx * light[0] + gy * light[1]) * width
-    return k * (0.18 * np.clip(facing, -1, 1) - 0.07 * valley)
+    """Brightness offset of the folds (negative = darker), from ``Material.crease_depth``.
+
+    A fold score photographed from above (reference photo): a thin shaded groove and, about
+    one board thickness beside it, the bright far wall. Depth 30 gives -10% / +5%.
+    """
+    k = m.crease_depth / 30
+    t = max(0.6, m.caliper_mm * L.px_per_mm)  # board thickness in px
+
+    def line(mask: np.ndarray, sigma: float) -> np.ndarray:
+        v = ndimage.gaussian_filter(mask, sigma)
+        return v / max(float(v.max()), 1e-6)
+
+    groove = line(L.crease, max(0.6, 0.35 * t))
+    # The groove's far wall faces the light, so the bright bead sits away from the light.
+    bead = line(shift(L.crease, -light[0] * 1.2 * t, -light[1] * 1.2 * t), max(0.8, 0.5 * t))
+    return k * (CREASE_BEAD * bead - CREASE_GROOVE * groove)
 
 
 def shift(m: np.ndarray, dx: float, dy: float) -> np.ndarray:
@@ -67,61 +82,101 @@ def print_surface(L: Layers, m, alpha: np.ndarray | None = None) -> np.ndarray:
     return paper * (1 - art_a) + art_rgb * art_a
 
 
+@dataclass
+class Parts:
+    """The flat render, split so the print can be checked against it.
+
+    Inside the board ``rgb = clip(print_rgb x gain)`` exactly; outside it is the background with
+    the contact shadow. ``gain`` is achromatic (one value for R, G and B): paper fibres, folds,
+    light and the cut edge only change how bright the print looks, never its colour or shape.
+    """
+
+    rgb: np.ndarray  # HxWx3 float, final colour
+    sil: np.ndarray  # HxW float, board coverage (anti-aliased)
+    gain: np.ndarray  # HxW float, achromatic paper/light gain on the print
+    print_rgb: np.ndarray  # HxWx3 float, the PDF print on bare board
+    shadow: np.ndarray  # HxW float, contact shadow outside the board
+    background: np.ndarray  # HxWx3 float, the ground with the contact shadow
+
+
+def paper_gain(L: Layers, look: Look = FLAT_LOOK) -> np.ndarray:
+    """Achromatic gain over the board: fine fibres, fold scores, soft light, edge catch-light.
+
+    Everything is multiplicative and the same on R, G and B, so it can only lighten or darken
+    the print a little; it never blurs, moves or tints it.
+    """
+    m, li = look.material, look.lighting
+    H, W = L.height, L.width
+    gain = np.ones((H, W), np.float32)
+
+    # Paper fibres: fine and low-amplitude, at the board's physical scale (0.1-0.35 mm). Under
+    # ink the fibres read softer (the ink film fills them), so type stays clean.
+    if m.texture > 0:
+        noise = 0.7 * value_noise(H, W, cell_px=0.35 * L.px_per_mm)
+        noise += 0.3 * value_noise(H, W, cell_px=0.12 * L.px_per_mm, seed=11)
+        amp = m.texture / 100 * TEXTURE_PER_UNIT * (0.5 + 0.5 * m.roughness / 100)
+        gain *= 1 + noise * amp * (1 - INK_DAMP * L.artwork[..., 3])
+
+    # Creases: a narrow, shallow score about one board thickness wide.
+    light = light_dir(li.light_angle)
+    if m.crease_depth > 0:
+        gain *= 1 + crease_relief(L, m, light)
+
+    # Soft, even studio light: a gentle fall-off across the sheet, no hot spot or sheen.
+    intensity = li.light_intensity / 100
+    dx, dy = light
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    g = ((xx - W / 2) * dx + (yy - H / 2) * dy) / max(W, H)
+    gain *= EXPOSURE * (1 + GRADIENT * intensity * 2 * g)
+
+    # Cut edge: a hairline catch-light on the light-facing side, so the cut reads against black.
+    edge = np.clip(L.silhouette - shift(L.silhouette, dx, dy), 0, 1)
+    gain *= 1 + EDGE_LIGHT * edge
+    return gain.astype(np.float32)
+
+
+def contact_shadow(L: Layers, look: Look = FLAT_LOOK) -> np.ndarray:
+    """A narrow shadow just outside the cut, from the exact silhouette (never from a model)."""
+    m, li = look.material, look.lighting
+    dx, dy = light_dir(li.light_angle)
+    t_px = max(0.6, m.caliper_mm * L.px_per_mm)
+    off = 0.6 + 1.2 * t_px
+    shadow = ndimage.gaussian_filter(
+        shift(L.silhouette, -dx * off, -dy * off), max(1.2, 2.5 * t_px)
+    )
+    return np.clip(shadow * (li.shadow_strength / 100) * 0.5, 0, 1) * (1 - L.silhouette)
+
+
+def render_parts(L: Layers, look: Look = FLAT_LOOK) -> Parts:
+    sil = L.silhouette
+    print_rgb = print_surface(L, look.material)
+    gain = paper_gain(L, look)
+    board = np.clip(print_rgb * gain[..., None], 0, 1)
+    shadow = contact_shadow(L, look)
+    background = np.broadcast_to(
+        hex_rgb(look.lighting.background_color) * (1 - shadow[..., None]), print_rgb.shape
+    ).astype(np.float32)
+    rgb = background * (1 - sil[..., None]) + board * sil[..., None]
+    return Parts(rgb.astype(np.float32), sil, gain, print_rgb, shadow, background)
+
+
+def to8(rgb: np.ndarray) -> np.ndarray:
+    return (np.clip(rgb, 0, 1) * 255 + 0.5).astype(np.uint8)
+
+
 def render(
     L: Layers, look: Look = FLAT_LOOK, *, transparent: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return (RGBA uint8 image, package alpha float32). Package alpha marks protected pixels."""
-    m, li = look.material, look.lighting
+    p = render_parts(L, look)
     H, W = L.height, L.width
-    sil = L.silhouette
-    surface = print_surface(L, m)
-
-    # Paper texture: amplitude from the texture value, softened by roughness.
-    if m.texture > 0:
-        noise = value_noise(H, W, cell_px=0.35 * L.px_per_mm)
-        fine = value_noise(H, W, cell_px=0.12 * L.px_per_mm, seed=11)
-        amp = (m.texture / 100) * 0.07 * (0.5 + 0.5 * m.roughness / 100)
-        surface = surface * (1 + (0.7 * noise + 0.3 * fine)[..., None] * amp)
-
-    # Creases: a pressed-in valley about one board thickness wide. The wall facing the light
-    # catches it, the far wall is shaded, and the bottom is slightly compressed (darker).
-    if m.crease_depth > 0:
-        surface = surface * (1 + crease_relief(L, m, light_dir(li.light_angle))[..., None])
-
-    intensity = li.light_intensity / 100
-    dx, dy = light_dir(li.light_angle)
-    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-    cx, cy = W / 2, H / 2
-    g = ((xx - cx) * dx + (yy - cy) * dy) / max(W, H)
-    shade = (AMBIENT + 0.18 * intensity) * (1 + GRADIENT * intensity * 2 * g)
-    surface = surface * shade[..., None]
-
-    # Broad specular sheen from the paper's reflectivity and roughness.
-    hx, hy = cx + dx * 0.35 * W, cy + dy * 0.35 * H
-    r = (0.25 + 0.6 * m.roughness / 100) * max(W, H)
-    d2 = ((xx - hx) ** 2 + (yy - hy) ** 2) / (r * r)
-    surface = surface + ((m.reflectivity / 100) * 0.16 * intensity * np.exp(-d2))[..., None]
-
-    # Board edge: thin highlight on the light-facing edge, so the cut reads against black.
-    t_px = max(0.6, m.caliper_mm * L.px_per_mm)
-    edge = sil - shift(sil, dx * 1.0, dy * 1.0)
-    surface = np.clip(surface + (np.clip(edge, 0, 1) * 0.06)[..., None], 0, 1)
-
-    # Contact shadow: soft, offset away from the light, scaled by board thickness.
-    off = 0.6 + 1.2 * t_px
-    shadow = ndimage.gaussian_filter(shift(sil, -dx * off, -dy * off), max(1.2, 2.5 * t_px) * 1.6)
-    shadow = np.clip(shadow * (li.shadow_strength / 100) * 0.5, 0, 1) * (1 - sil)
-
     if transparent:
-        alpha = np.clip(sil + shadow, 0, 1)
+        alpha = np.clip(p.sil + p.shadow, 0, 1)
+        board = np.clip(p.print_rgb * p.gain[..., None], 0, 1)
         rgb = np.where(
-            alpha[..., None] > 0, surface * sil[..., None] / np.maximum(alpha, 1e-6)[..., None], 0
+            alpha[..., None] > 0, board * p.sil[..., None] / np.maximum(alpha, 1e-6)[..., None], 0
         )
         out = np.concatenate([rgb, alpha[..., None]], axis=-1)
     else:
-        background = np.broadcast_to(hex_rgb(li.background_color), (H, W, 3))
-        background = background * (1 - shadow[..., None])
-        rgb = background * (1 - sil[..., None]) + surface * sil[..., None]
-        out = np.concatenate([rgb, np.ones((H, W, 1), np.float32)], axis=-1)
-
-    return (np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8), sil
+        out = np.concatenate([p.rgb, np.ones((H, W, 1), np.float32)], axis=-1)
+    return to8(out), p.sil
