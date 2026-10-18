@@ -10,6 +10,7 @@ from app.ai import providers
 from app.ai.models import IMAGE_MODEL
 from app.api.deps import idempotent_replay, is_legacy, remember
 from app.api.schemas import (
+    ComposeIn,
     EnhanceIn,
     EnhanceInterpretIn,
     EnhanceInterpretOut,
@@ -24,7 +25,15 @@ from app.errors import ApiError
 from app.finishing import spec as fspec
 from app.jobs import runner
 from app.jobs.runner import Cancelled, JobContext
-from app.services import enhance, enhance_prompt, finish_realism, merge, pipeline, specs
+from app.services import (
+    enhance,
+    enhance_prompt,
+    finish_realism,
+    merge,
+    pipeline,
+    specs,
+    structural_merge,
+)
 from app.storage import repo
 
 router = APIRouter(tags=["generate"])
@@ -46,7 +55,7 @@ def _check_can_start(project: dict, needs_model: bool = True) -> None:
             hint="backend/.env에 GEMINI_API_KEY를 추가하세요.",
         )
     if (
-        runner.active_count("generate", "merge", "enhance", "finish")
+        runner.active_count("generate", "merge", "enhance", "finish", "compose")
         >= get_settings().max_concurrent_generations
     ):
         raise ApiError(
@@ -212,6 +221,51 @@ def start_merge(pid: str, body: MergeIn, request: Request):
         scene_json={"reference_id": body.reference_id, "form": form},
     )
     remember(request, f"merge:{pid}", 202, out.model_dump())
+    return out
+
+
+@router.post("/projects/{pid}/compose", response_model=GenerateOut, status_code=202)
+def start_compose(pid: str, body: ComposeIn, request: Request):
+    """Step 3, structural mode: the deterministic composition of our folded carton(s) in the
+    reference scene, then optionally the AI harmonization (``harmonize``)."""
+    if replay := idempotent_replay(request, f"compose:{pid}"):
+        return replay
+    project = repo.project_or_404(pid)
+    _check_can_start(project, needs_model=body.harmonize)
+    ref = repo.get("refs", body.reference_id)
+    if ref is None or ref["project_id"] != pid:
+        raise ApiError(404, "REFERENCE_NOT_FOUND", "레퍼런스를 찾을 수 없습니다.")
+    flat = _flat_version(pid, body.flat_version_id)
+    scene = structural_merge.load_scene(pid, body.reference_id)
+    if not any(i.get("enabled", True) for i in scene.get("instances", [])):
+        raise ApiError(
+            409,
+            "SCENE_EMPTY",
+            "레퍼런스에서 교체할 패키지가 없습니다.",
+            hint="'패키지 찾기'를 누르거나 직접 지정해주세요.",
+        )
+    structural_merge._structure(specs.load(project))  # unsupported structures stop here (409)
+    out = _start(
+        pid,
+        "compose",
+        structural_merge.run_structural,
+        settings={
+            "merge_mode": "structural",
+            "harmonize": body.harmonize,
+            "strength": body.strength,
+        },
+        kind="merge",
+        reference_ids=[body.reference_id],
+        flat_version_id=flat["id"],
+        scene_json={
+            "reference_id": body.reference_id,
+            "form": "structural",
+            "scene": scene,
+            "harmonize": body.harmonize,
+            "strength": body.strength,
+        },
+    )
+    remember(request, f"compose:{pid}", 202, out.model_dump())
     return out
 
 

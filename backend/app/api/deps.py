@@ -104,7 +104,11 @@ def version_out(v: dict) -> VersionOut:
         legacy=is_legacy(v),
         status=v["status"],
         provider_label=(
-            "후가공 · 코드 렌더"
+            "구조 합성 · 코드 렌더"
+            if settings.get("merge_mode") == "structural" and not settings.get("harmonize")
+            else f"{model.label} · 구조 합성 AI 조화"
+            if model and settings.get("merge_mode") == "structural"
+            else "후가공 · 코드 렌더"
             if settings.get("flat_mode") == "finished" and not settings.get("ai")
             else f"{model.label} · 후가공 AI 사실감"
             if model and settings.get("flat_mode") == "finished"

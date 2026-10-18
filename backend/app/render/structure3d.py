@@ -211,3 +211,90 @@ def to_png(r: Render) -> bytes:
     buf = io.BytesIO()
     Image.fromarray((np.clip(r.rgba[..., :3], 0, 1) * 255 + 0.5).astype(np.uint8)).save(buf, "PNG")
     return buf.getvalue()
+
+
+# ---- scenes: several cartons, one camera (structural reference composition) ---------------
+
+
+@dataclass
+class Buffers:
+    """A scene raster at the output resolution (camera space: x right, y down, z forward)."""
+
+    obj: np.ndarray  # HxW int16: object index, -1 = background
+    panel: np.ndarray  # HxW int16: panel index within the object
+    outside: np.ndarray  # HxW bool: the printed face is seen
+    flat_xy: np.ndarray  # HxWx2 float32: hit point on the flat net (mm)
+    depth: np.ndarray  # HxW float32: camera z, inf = background
+    point: np.ndarray  # HxWx3 float32: hit point (camera space)
+    normal: np.ndarray  # HxWx3 float32: normal of the visible side (camera space)
+    coverage: np.ndarray  # HxW float32: anti-aliased silhouette of all objects
+
+
+def rasterize(
+    objects: list[tuple[Folded, np.ndarray]],
+    K: np.ndarray,
+    size: tuple[int, int],
+    cover_ss: int = 3,
+) -> Buffers:
+    """Z-buffer several folded cartons. ``objects``: (folded, 4x4 model matrix to camera
+    space), camera at the origin looking down +z; ``K``: 3x3 intrinsics in output pixels."""
+    w, h = size
+    f, cx, cy = K[0, 0], K[0, 2], K[1, 2]
+    obj = np.full((h, w), -1, np.int16)
+    panel = np.full((h, w), -1, np.int16)
+    outside = np.zeros((h, w), bool)
+    flat_xy = np.zeros((h, w, 2), np.float32)
+    depth = np.full((h, w), np.inf, np.float32)
+    point = np.zeros((h, w, 3), np.float32)
+    normal = np.zeros((h, w, 3), np.float32)
+    cover = Image.new("L", (w * cover_ss, h * cover_ss), 0)
+    cd = ImageDraw.Draw(cover)
+    for oi, (folded, Mo) in enumerate(objects):
+        for pi, p in enumerate(folded.panels):
+            M = Mo @ p.matrix
+            cam = [(np.c_[q, np.zeros(len(q)), np.ones(len(q))] @ M.T)[:, :3] for q in p.flat]
+            if any((c[:, 2] <= 1e-6).any() for c in cam):
+                continue  # behind the camera: never happens in a fitted scene
+            proj = [np.c_[c[:, 0] / c[:, 2] * f + cx, c[:, 1] / c[:, 2] * f + cy] for c in cam]
+            outer = int(np.argmax([_area(q) for q in proj]))
+            x0, y0 = np.floor(proj[outer].min(0)).astype(int) - 1
+            x1, y1 = np.ceil(proj[outer].max(0)).astype(int) + 2
+            x0, y0, x1, y1 = max(0, x0), max(0, y0), min(w, x1), min(h, y1)
+            if x1 <= x0 or y1 <= y0:
+                continue
+            img = Image.new("L", (x1 - x0, y1 - y0), 0)
+            d = ImageDraw.Draw(img)
+            d.polygon([(u - x0, v - y0) for u, v in proj[outer]], fill=255)
+            for j, q in enumerate(proj):
+                if j != outer:
+                    d.polygon([(u - x0, v - y0) for u, v in q], fill=0)
+            cd.polygon([(u * cover_ss, v * cover_ss) for u, v in proj[outer]], fill=255)
+            ys, xs = np.nonzero(np.asarray(img) > 127)
+            if not ys.size:
+                continue
+            ys, xs = ys + y0, xs + x0
+            n = M[:3, :3] @ np.array([0.0, 0.0, 1.0])
+            n /= np.linalg.norm(n)
+            p0 = cam[outer][0]
+            dx, dy = (xs + 0.5 - cx) / f, (ys + 0.5 - cy) / f
+            denom = n[0] * dx + n[1] * dy + n[2]
+            ok = np.abs(denom) > 1e-9
+            t = np.where(ok, (n @ p0) / np.where(ok, denom, 1), np.inf)
+            closer = ok & (t > 0) & (t < depth[ys, xs])
+            ys, xs, t, dx, dy = ys[closer], xs[closer], t[closer], dx[closer], dy[closer]
+            if not ys.size:
+                continue
+            hit = np.stack([dx * t, dy * t, t], -1)
+            depth[ys, xs] = t
+            obj[ys, xs] = oi
+            panel[ys, xs] = pi
+            facing = float(n @ -p0) > 0
+            outside[ys, xs] = facing
+            normal[ys, xs] = n if facing else -n
+            point[ys, xs] = hit
+            local = np.c_[hit, np.ones(len(hit))] @ np.linalg.inv(M).T
+            flat_xy[ys, xs] = local[:, :2]
+    # Silhouette coverage (supersampled): soft only along the outline. Colour for the partly
+    # covered pixels just outside the z-buffer comes from their nearest covered neighbour.
+    coverage = np.asarray(cover.resize((w, h), Image.BOX)).astype(np.float32) / 255
+    return Buffers(obj, panel, outside, flat_xy, depth, point, normal, coverage)

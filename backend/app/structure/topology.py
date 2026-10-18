@@ -30,6 +30,9 @@ LINE_MM = 0.35  # drawn width of a line barrier
 MIN_SEGMENT_PT = 1.0  # shorter structural pieces are joints, not lines
 MIN_RUN_MM = 1.5  # shorter fold or contact runs are corner noise
 AXIS_TOL_DEG = 1.0  # horizontal / vertical within this
+# Panel outline simplification (px at PX_PER_MM): 0.25 mm. The trace's pixel staircase would
+# otherwise show as a saw-tooth edge once a carton is rendered large.
+OUTLINE_TOL_PX = 2.0
 
 
 @dataclass
@@ -287,7 +290,7 @@ def analyze(spec: Specification) -> Topology:
         grown = ndimage.binary_dilation(m, iterations=max(1, int(round(line_px / 2))))
         polys = []
         for pts in trace_loops(grown):
-            pts = simplify_loop(pts, 0.75)
+            pts = simplify_loop(pts, OUTLINE_TOL_PX)
             if len(pts) >= 3:
                 polys.append(
                     [

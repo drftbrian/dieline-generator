@@ -100,7 +100,7 @@ class JobStage(BaseModel):
 class JobOut(BaseModel):
     id: str
     project_id: str
-    type: Literal["analyze", "render", "generate", "merge", "enhance", "finish"]
+    type: Literal["analyze", "render", "generate", "merge", "enhance", "finish", "compose"]
     status: Literal["pending", "running", "done", "failed", "cancelled"]
     progress: float
     stages: list[JobStage]
@@ -212,6 +212,15 @@ class MergeIn(BaseModel):
     reference_id: str
     flat_version_id: str | None = None  # default: the latest successful flat render
     form: MergeForm = "auto"  # auto = the form Claude read in the reference (none -> folded)
+
+
+class ComposeIn(BaseModel):
+    """Step 3, structural mode: our folded carton in place of each package of the reference."""
+
+    reference_id: str
+    flat_version_id: str | None = None  # default: the latest successful flat render
+    harmonize: bool = False  # optional AI pass after the deterministic composition
+    strength: float = Field(0.7, ge=0.0, le=1.0)
 
 
 class EnhanceIn(BaseModel):
@@ -339,7 +348,7 @@ class VersionOut(BaseModel):
     model_id: str
     flat_version_id: str | None = None  # merge: the flat render it was made from
     reference_id: str | None = None  # merge: the reference photo
-    form: Literal["flat", "folded"] | None = None  # merge: the form used
+    form: Literal["flat", "folded", "structural"] | None = None  # merge: the form used
     # A post-render AI material enhancement of a deterministic flat render (else None).
     enhancement: EnhancementOut | None = None
     finishing: FinishedOut | None = None  # finishes baked in (else None)

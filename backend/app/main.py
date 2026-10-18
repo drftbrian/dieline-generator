@@ -13,6 +13,7 @@ from app.api import (
     history,
     projects,
     references,
+    scene,
     structure,
 )
 from app.config import get_settings
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
         assets.router,
         finishing.router,
         structure.router,
+        scene.router,
     ):
         app.include_router(r, prefix="/api")
     return app

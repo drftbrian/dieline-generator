@@ -310,6 +310,35 @@ def analyze_reference(img: Image.Image) -> AiReference:
     )
 
 
+# ---- package instances in a reference (structural composition) ------------------------------
+
+
+class AiCorner(Strict):
+    x: float
+    y: float
+    visible: bool
+
+
+class AiInstance(Strict):
+    corners: list[AiCorner]
+    height_ratio: float
+    order: int
+    confidence: float
+
+
+class AiInstances(Strict):
+    instances: list[AiInstance]
+
+
+def detect_instances(img: Image.Image) -> AiInstances:
+    """Where each package of a reference photo stands (a proposal the user confirms)."""
+    content = [
+        _image_block(img, 1568),
+        {"type": "text", "text": "Locate the packages in this photo."},
+    ]
+    return _call(prompts.text("reference_instances"), content, AiInstances, effort="medium")
+
+
 # ---- enhancement prompt reading (services/enhance_prompt.py) ---------------------------------
 
 EnhanceCategory = Literal[
