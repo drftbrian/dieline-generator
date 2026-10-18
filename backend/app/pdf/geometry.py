@@ -102,3 +102,72 @@ def to_hex(rgb: tuple[float, float, float] | None) -> str:
         return "#000000"
     r, g, b = (max(0, min(255, int(round(c * 255)))) for c in rgb)
     return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def trace_loops(b: np.ndarray) -> list[np.ndarray]:
+    """Closed outlines of a binary image along pixel edges, as (row, col) corner points. Holes
+    come out as their own loops; filled even-odd they give back exactly the pixel set."""
+    p = np.pad(b, 1)
+    ins = p[1:-1, 1:-1]
+    w1 = b.shape[1] + 1
+    starts, ends = [], []
+    for edge, (ra, ca, rb, cb) in (
+        (ins & ~p[:-2, 1:-1], (0, 0, 0, 1)),  # top: left -> right
+        (ins & ~p[1:-1, 2:], (0, 1, 1, 1)),  # right: down
+        (ins & ~p[2:, 1:-1], (1, 1, 1, 0)),  # bottom: right -> left
+        (ins & ~p[1:-1, :-2], (1, 0, 0, 0)),  # left: up
+    ):
+        r, c = np.nonzero(edge)
+        starts.append((r + ra) * w1 + c + ca)
+        ends.append((r + rb) * w1 + c + cb)
+    s, e = np.concatenate(starts), np.concatenate(ends)
+    nxt: dict[int, list[int]] = {}
+    for a, z in zip(s.tolist(), e.tolist(), strict=True):
+        nxt.setdefault(a, []).append(z)
+    loops = []
+    while nxt:
+        v0 = next(iter(nxt))
+        loop, v = [v0], v0
+        while True:
+            outs = nxt.get(v)
+            if not outs:
+                break
+            z = outs.pop()
+            if not outs:
+                del nxt[v]
+            if z == v0:
+                break
+            loop.append(z)
+            v = z
+        pts = np.array([(q // w1, q % w1) for q in loop], np.float64)
+        loops.append(pts)
+    return loops
+
+
+def simplify_loop(pts: np.ndarray, tol: float) -> np.ndarray:
+    """Ramer-Douglas-Peucker on a closed loop (staircases become their diagonals)."""
+    if len(pts) <= 4:
+        return pts
+    far = int(np.argmax(((pts - pts[0]) ** 2).sum(1)))
+    keep = np.zeros(len(pts), bool)
+    keep[[0, far]] = True
+    ring = np.vstack([pts, pts[:1]])
+    stack = [(0, far), (far, len(pts))]
+    while stack:
+        i, j = stack.pop()
+        if j - i < 2:
+            continue
+        a, b = ring[i], ring[j]
+        seg = ring[i + 1 : j]
+        d = b - a
+        n = math.hypot(*d)
+        if n == 0:
+            dist = np.hypot(*(seg - a).T)
+        else:
+            dist = np.abs(d[0] * (seg[:, 1] - a[1]) - d[1] * (seg[:, 0] - a[0])) / n
+        k = int(np.argmax(dist))
+        if dist[k] > tol:
+            m = i + 1 + k
+            keep[m % len(pts)] = True
+            stack += [(i, m), (m, j)]
+    return pts[keep]

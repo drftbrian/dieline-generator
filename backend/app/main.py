@@ -4,7 +4,17 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import assets, figma, finishing, generate, health, history, projects, references
+from app.api import (
+    assets,
+    figma,
+    finishing,
+    generate,
+    health,
+    history,
+    projects,
+    references,
+    structure,
+)
 from app.config import get_settings
 from app.errors import ErrorResponse, install_error_handlers
 from app.jobs.runner import reap_orphans
@@ -38,6 +48,7 @@ def create_app() -> FastAPI:
         history.router,
         assets.router,
         finishing.router,
+        structure.router,
     ):
         app.include_router(r, prefix="/api")
     return app
