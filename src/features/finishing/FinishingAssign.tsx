@@ -96,6 +96,7 @@ function SaveStatus({ projectId }: { projectId: string }) {
   const status = useFinishingStore((s) => s.status)
   const error = useFinishingStore((s) => s.error)
   const revision = useFinishingStore((s) => s.saved.revision)
+  const theirs = useFinishingStore((s) => s.conflict?.revision ?? 0)
   const dirty = useFinishingStore(isDirty)
   const s = t.status
   if (!mine) return null
@@ -104,21 +105,52 @@ function SaveStatus({ projectId }: { projectId: string }) {
       ? s.loading
       : status === 'saving'
         ? s.saving
-        : status === 'error'
-          ? s.error(error ?? s.unsaved)
-          : dirty
-            ? s.pending
-            : s.saved(revision)
+        : status === 'conflict'
+          ? s.conflict(theirs)
+          : status === 'error'
+            ? s.error(error ?? s.unsaved)
+            : dirty
+              ? s.pending
+              : s.saved(revision)
   return (
     <div className="flex items-center gap-2 text-[11px]" role="status" aria-live="polite">
       <span
         aria-hidden
         className={cn(
           'size-1.5 shrink-0 rounded-full',
-          status === 'error' ? 'bg-red-500' : status === 'saving' || dirty ? 'bg-amber-500' : 'bg-emerald-500',
+          status === 'error' || status === 'conflict'
+            ? 'bg-red-500'
+            : status === 'saving' || dirty
+              ? 'bg-amber-500'
+              : 'bg-emerald-500',
         )}
       />
-      <span className={cn('min-w-0 flex-1', status === 'error' ? 'text-red-700' : 'text-ink-muted')}>{text}</span>
+      <span
+        className={cn(
+          'min-w-0 flex-1',
+          status === 'error' || status === 'conflict' ? 'text-red-700' : 'text-ink-muted',
+        )}
+      >
+        {text}
+      </span>
+      {status === 'conflict' && (
+        <>
+          <button
+            type="button"
+            className="shrink-0 text-ink-muted underline underline-offset-2 hover:text-ink"
+            onClick={() => useFinishingStore.getState().keepMine()}
+          >
+            {s.keepMine}
+          </button>
+          <button
+            type="button"
+            className="shrink-0 text-ink-muted underline underline-offset-2 hover:text-ink"
+            onClick={() => useFinishingStore.getState().takeTheirs()}
+          >
+            {s.takeTheirs}
+          </button>
+        </>
+      )}
       {status === 'error' && (
         <button
           type="button"

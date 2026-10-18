@@ -130,7 +130,12 @@ def save_finishing(pid: str, body: FinishingSaveIn) -> fspec.FinishingSpec:
     """Save the whole specification as a new revision (the client keeps undo/redo history)."""
     spec = assets_api._ready(pid)
     _, tree = fa.project_assets(pid, spec)
-    checked = fspec.validate(body.assignments, tree, {p.id for p in spec.panels})
+    # Targets already saved stay savable when their asset has gone (the manufacturing checks
+    # report them as missing): one lost node never blocks every other edit.
+    saved = {
+        (a.id, t.id) for a in fspec.load(pid).assignments for t in a.targets if t.kind == "asset"
+    }
+    checked = fspec.validate(body.assignments, tree, {p.id for p in spec.panels}, saved)
     return fspec.save(pid, body.base_revision, checked)
 
 
@@ -182,6 +187,13 @@ def overlay(
 Light = Literal["top", "raking"]
 
 
+def _source_key(pid: str, spec) -> tuple:
+    """What a cached preview, sweep or check depends on besides the finishing revision: the
+    structure, the specification's own version (panel names, physical scale) and the asset
+    geometry on disk (tree and outlines), so an edit to any of them is never served stale."""
+    return (structure_key(spec), spec.version, fa.geometry_stamp(pid))
+
+
 def _cached(key: tuple, make):
     with _lock:
         hit = _cache.get(key)
@@ -202,7 +214,7 @@ def finishing_preview(pid: str, version_id: str, revision: int | None = None, li
     spec = assets_api._ready(pid)
     _version(pid, version_id)
     fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
-    key = ("overlay", pid, version_id, fin.revision, structure_key(spec), light)
+    key = ("overlay", pid, version_id, fin.revision, _source_key(pid, spec), light)
     png, fr = _cached(key, lambda: overlay(pid, spec, version_id, fin, light))
     headers = {
         "X-Frame-Origin": f"{fr['origin'][0]},{fr['origin'][1]}",
@@ -227,7 +239,7 @@ def finishing_sweep(pid: str, version_id: str, revision: int | None = None, ligh
             raise ApiError(409, "FINISHING_EMPTY", "적용된 후가공이 없습니다.")
         return compose.sweep(c, light), {}
 
-    key = ("sweep", pid, version_id, fin.revision, structure_key(spec), light)
+    key = ("sweep", pid, version_id, fin.revision, _source_key(pid, spec), light)
     gif, _ = _cached(key, make)
     return Response(gif, media_type="image/gif", headers={"Cache-Control": "no-store"})
 
@@ -255,6 +267,6 @@ def finishing_warnings(pid: str, revision: int | None = None) -> WarningsOut:
     glue flap, combinations (research defaults; a printer's own limits may differ)."""
     spec = assets_api._ready(pid)
     fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
-    key = ("warnings", pid, fin.revision, structure_key(spec))
+    key = ("warnings", pid, fin.revision, _source_key(pid, spec))
     found, _ = _cached(key, lambda: (constraints.check(pid, spec, fin), {}))
     return WarningsOut(revision=fin.revision, warnings=[WarningOut(**w) for w in found])

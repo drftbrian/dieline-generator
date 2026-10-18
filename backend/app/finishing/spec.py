@@ -9,8 +9,12 @@ edited from; a stale base is a conflict, never a silent overwrite.
 from __future__ import annotations
 
 import json
+import os
+import re
 import secrets
+import threading
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -22,6 +26,9 @@ from app.storage import repo
 SCHEMA = 1
 FILE = "finishing.json"
 REV_DIR = "finishing"
+_REV = re.compile(r"rev-(\d+)\.json$")
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
 
 
 class Target(BaseModel):
@@ -61,11 +68,25 @@ def migrate(data: dict) -> dict:
     return data
 
 
+def _latest_revision(d: Path) -> int:
+    revs = [int(m.group(1)) for p in (d / REV_DIR).glob("rev-*.json") if (m := _REV.match(p.name))]
+    return max(revs, default=0)
+
+
 def load(pid: str) -> FinishingSpec:
-    path = repo.project_dir(pid) / FILE
-    if not path.exists():
-        return FinishingSpec()
-    return FinishingSpec.model_validate(migrate(json.loads(path.read_text())))
+    """The current specification: the highest saved revision. ``finishing.json`` is a copy of
+    it; if a save was interrupted between the two writes, the revision file wins."""
+    d = repo.project_dir(pid)
+    path = d / FILE
+    current = (
+        FinishingSpec.model_validate(migrate(json.loads(path.read_text())))
+        if path.exists()
+        else FinishingSpec()
+    )
+    latest = _latest_revision(d)
+    if latest > current.revision:
+        current = load_revision(pid, latest)
+    return current
 
 
 def load_revision(pid: str, revision: int) -> FinishingSpec:
@@ -78,9 +99,16 @@ def load_revision(pid: str, revision: int) -> FinishingSpec:
 
 
 def validate(
-    assignments: list[Assignment], assets: list[dict], panel_ids: set[str]
+    assignments: list[Assignment],
+    assets: list[dict],
+    panel_ids: set[str],
+    saved_assets: set[tuple[str, str | None]] | None = None,
 ) -> list[Assignment]:
-    """Check each assignment against the catalogue and the project; clamp parameters."""
+    """Check each assignment against the catalogue and the project; clamp parameters.
+
+    ``saved_assets``: (assignment id, asset id) pairs of the saved specification; such a
+    target whose asset is no longer in the tree may stay on that assignment (the checks report
+    it as missing) but cannot be added to any other."""
     by_id = {a["id"]: a for a in assets}
     seen: set[str] = set()
     same: set[tuple] = set()
@@ -122,6 +150,8 @@ def validate(
                         f"'{f.label_ko}'은(는) 전체 시트나 패널에 적용하는 후가공입니다.",
                     )
                 asset = by_id.get(t.id or "")
+                if asset is None and (a.id, t.id) in (saved_assets or set()):
+                    continue
                 if asset is None or not asset.get("selectable"):
                     raise ApiError(
                         422,
@@ -147,16 +177,42 @@ def validate(
     return out
 
 
+def _lock(pid: str) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(pid, threading.Lock())
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write via a temporary file and rename: a reader never sees a half-written file."""
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def save(pid: str, base_revision: int, assignments: list[Assignment]) -> FinishingSpec:
+    """Save as the next revision when ``base_revision`` is still the current one (else 409).
+
+    The check and the write are one step: a per-project lock serialises saves in this process,
+    and the revision file is claimed with an exclusive create (``os.link`` fails when it
+    exists), so two writers - threads or processes - can never both save revision N+1."""
+    with _lock(pid):
+        return _save(pid, base_revision, assignments)
+
+
+def _conflict(current: int) -> ApiError:
+    return ApiError(
+        409,
+        "FINISHING_CONFLICT",
+        "다른 곳에서 후가공이 바뀌었습니다.",
+        hint="최신 상태를 불러온 뒤 다시 적용해주세요.",
+        details={"current_revision": current},
+    )
+
+
+def _save(pid: str, base_revision: int, assignments: list[Assignment]) -> FinishingSpec:
     current = load(pid)
     if base_revision != current.revision:
-        raise ApiError(
-            409,
-            "FINISHING_CONFLICT",
-            "다른 곳에서 후가공이 바뀌었습니다.",
-            hint="최신 상태를 불러온 뒤 다시 적용해주세요.",
-            details={"current_revision": current.revision},
-        )
+        raise _conflict(current.revision)
     now = _now()
     before = {a.id: a for a in current.assignments}
     stamped = []
@@ -169,9 +225,17 @@ def save(pid: str, base_revision: int, assignments: list[Assignment]) -> Finishi
         updated = now if changed else (old.updated_at if old else now)
         stamped.append(a.model_copy(update={"created_at": created, "updated_at": updated}))
     spec = FinishingSpec(revision=current.revision + 1, assignments=stamped, updated_at=now)
-    data = spec.model_dump(by_alias=True)
+    text = json.dumps(spec.model_dump(by_alias=True), ensure_ascii=False)
     d = repo.project_dir(pid)
     (d / REV_DIR).mkdir(exist_ok=True)
-    (d / REV_DIR / f"rev-{spec.revision}.json").write_text(json.dumps(data, ensure_ascii=False))
-    (d / FILE).write_text(json.dumps(data, ensure_ascii=False))
+    rev = d / REV_DIR / f"rev-{spec.revision}.json"
+    tmp = rev.with_name(f".{rev.name}.{secrets.token_hex(4)}.tmp")
+    tmp.write_text(text)
+    try:
+        os.link(tmp, rev)  # complete file, or nothing; fails if another writer got there first
+    except FileExistsError:
+        raise _conflict(_latest_revision(d)) from None
+    finally:
+        tmp.unlink(missing_ok=True)
+    _write_atomic(d / FILE, text)
     return spec

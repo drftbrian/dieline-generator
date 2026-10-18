@@ -8,7 +8,7 @@ import type { Assignment, FinishTarget, FinishingSpec } from '@/api/types'
 
 export type WorkingAssignment = Assignment & { id: string }
 
-export type SaveStatus = 'loading' | 'saved' | 'saving' | 'error'
+export type SaveStatus = 'loading' | 'saved' | 'saving' | 'error' | 'conflict'
 
 type State = {
   projectId: string | null
@@ -19,6 +19,8 @@ type State = {
   error: string | null
   /** Bumped by "다시 저장"; useFinishingSync saves when it changes. */
   retryTick: number
+  /** The newer server copy after a 409, while the user decides (the working list is kept). */
+  conflict: FinishingSpec | null
 }
 
 type Actions = {
@@ -35,6 +37,11 @@ type Actions = {
   /** Back to the last saved state (after a 422). */
   revert: () => void
   retry: () => void
+  /** A save hit a newer revision: keep the working list, remember the server's copy. */
+  conflicted: (spec: FinishingSpec) => void
+  /** Resolve a conflict: save the working list over the newer revision, or load that one. */
+  keepMine: () => void
+  takeTheirs: () => void
 }
 
 const randomHex = (n: number) =>
@@ -87,7 +94,25 @@ export const useFinishingStore = create<State & Actions>()(
       status: 'loading',
       error: null,
       retryTick: 0,
+      conflict: null,
       retry: () => set((s) => ({ retryTick: s.retryTick + 1 })),
+      conflicted: (spec) => set({ conflict: spec, status: 'conflict', error: null }),
+      keepMine: () => {
+        const c = get().conflict
+        if (!c) return
+        quietly(() =>
+          set((s) => ({
+            saved: { revision: c.revision, assignments: fromServer(c.assignments) },
+            conflict: null,
+            status: 'saved',
+            retryTick: s.retryTick + 1,
+          })),
+        )
+      },
+      takeTheirs: () => {
+        const c = get().conflict
+        if (c && get().projectId) get().hydrate(get().projectId as string, c)
+      },
       hydrate: (projectId, spec) => {
         const list = fromServer(spec.assignments)
         quietly(() =>
@@ -97,6 +122,7 @@ export const useFinishingStore = create<State & Actions>()(
             saved: { revision: spec.revision, assignments: list },
             status: 'saved',
             error: null,
+            conflict: null,
           }),
         )
         useFinishingStore.temporal.getState().clear()
