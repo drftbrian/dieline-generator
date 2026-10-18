@@ -42,6 +42,10 @@ APPROX_EDGE = 6000  # px, long edge of the raster used for PDF-only (approximate
 BLEED_MM = 1.0  # past the cut: a finish running to the edge survives die-cut tolerance
 TRACE_PX_PER_MM = 8  # resolution of the board outline used as the plates' clip
 TRACE_MAX_EDGE = 6000
+TRACE_TOL_PX = 0.5  # outline simplification
+# How far the traced clip may sit from the true bleed line (one trace pixel + simplification).
+# It only moves the bleed's outer edge, outside the board; the board itself is the preview's.
+OUTLINE_TOL_MM = (1 + TRACE_TOL_PX) / TRACE_PX_PER_MM
 
 _COLOUR = re.compile(r'(fill|stroke|stop-color)\s*=\s*"(?!none)[^"]*"')
 _STYLE = re.compile(r"(fill|stroke|stop-color)\s*:\s*(?!none)[^;\"]+")
@@ -148,7 +152,7 @@ def board_outline(
     ox, oy = raster.origin
     out = []
     for pts in _loops(b):
-        pts = _simplify(pts, 0.5)
+        pts = _simplify(pts, TRACE_TOL_PX)
         if len(pts) >= 3:
             out.append([(ox + col / raster.scale, oy + row / raster.scale) for row, col in pts])
     return out
@@ -321,6 +325,55 @@ def plate_coverage(pdf: bytes, spec: Specification, long_edge: int) -> np.ndarra
     dx = pix.x - round(raster.origin[0] * raster.scale)
     dy = pix.y - round(raster.origin[1] * raster.scale)
     return masks._place(a.astype(np.float32) / 255, raster.h, raster.w, dy, dx)
+
+
+def compare(pid: str, spec: Specification, vid: str, fin: fspec.FinishingSpec) -> list[dict]:
+    """Each plate of ``fin`` against the preview's masks of the same finish on version ``vid``
+    (the same pixel grid): pixels where they disagree inside the board, away from the
+    anti-aliased edges (``wrong_px``, must be 0), plate pixels farther out than the bleed
+    (``beyond_bleed_px``, must be 0), and the overlap (``iou``) inside the board."""
+    from app.finishing import compose
+
+    c = compose.compose(pid, spec, vid, fin)
+    h, w = c.image.shape[:2]
+    prev: dict[str, np.ndarray] = {}
+    if c.box is not None:
+        y0, x0, y1, x1 = c.box
+        for f, _, m in c.stack:
+            full = prev.setdefault(f.id, np.zeros((h, w), np.float32))
+            full[y0:y1, x0:x1] = np.maximum(full[y0:y1, x0:x1], m)
+    z = zipfile.ZipFile(io.BytesIO(build(pid, spec, fin)))
+    manifest = json.loads(z.read("finishing.json"))
+    sil = masks.board(spec, max(h, w), structure_key(spec)) > 0.5
+    raster, _ = frame(spec, max(h, w), FLAT_LOOK.lighting.margin)
+    bleed_px = (BLEED_MM + OUTLINE_TOL_MM) / spec.scale.mm_per_pt * raster.scale
+    beyond = ndimage.distance_transform_edt(~sil) > bleed_px + 1
+    sil_edge = ndimage.binary_dilation(sil, iterations=2) & ~ndimage.binary_erosion(
+        sil, iterations=2
+    )
+    out = []
+    for p in manifest["plates"]:
+        plate = plate_coverage(z.read(p["file"]), spec, max(h, w)) > 0.5
+        a = prev.get(p["finish"], np.zeros((h, w), np.float32)) > 0.5
+        edge = ndimage.binary_dilation(a, iterations=2) & ~ndimage.binary_erosion(a, iterations=2)
+        edge |= sil_edge
+        inside = sil & ~edge
+        union = int(((a | plate) & inside).sum())
+        out.append(
+            {
+                "finish": p["finish"],
+                "file": p["file"],
+                "preview_px": int(a.sum()),
+                "plate_px": int(plate.sum()),
+                "wrong_px": int(((a ^ plate) & inside).sum()),
+                "beyond_bleed_px": int((plate & beyond).sum()),
+                "iou": round(int(((a & plate) & inside).sum()) / union, 4) if union else 1.0,
+                "px_per_mm": round(raster.scale / spec.scale.mm_per_pt, 3),
+                "approximate_assets": p["approximate_assets"],
+                "missing_targets": p["missing_targets"],
+            }
+        )
+    return out
 
 
 README = """후가공 판 파일 (Dieline Generator)

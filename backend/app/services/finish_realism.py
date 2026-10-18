@@ -65,6 +65,9 @@ REFERENCE_WORDS = {
     "relief.deboss": ("디보싱",),
     "coating.spot_uv": ("부분",),
     "coating.varnish_gloss": ("부분", "유광"),
+    "surface.gloss_lamination": ("유광코팅",),
+    "surface.matte_lamination": ("무광코팅",),
+    "coating.flood_uv": ("UV코팅",),  # 후가공_UV코팅: the whole sheet (not 부분(UV)코팅)
 }
 
 

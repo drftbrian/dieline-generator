@@ -153,6 +153,10 @@ def _tint(f: catalog.Finish) -> tuple[np.ndarray, dict]:
     levels = cal["gold"] if f.id == "foil.gold" else cal["silver"]
     h = (f.color or "#C0C0C0").lstrip("#")
     rgb = np.array([int(h[i : i + 2], 16) / 255 for i in (0, 2, 4)], np.float32)
+    if f.id == "foil.gold" and "body_rgb" in levels:
+        # Gold's colour as measured on the photos (chroma ~0.24), not the catalogue swatch
+        # (#D4AF37, chroma 0.62): the swatch rendered as a mustard twice as saturated.
+        rgb = np.array(levels["body_rgb"], np.float32)
     return rgb / max(float(rgb @ LUMA), 1e-3), levels
 
 
@@ -182,7 +186,8 @@ def metal(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Sce
     # Tone: the room (dark) where no light is mirrored, lifted by a reflector card near the
     # camera; the softbox a broad lift, the strip light the bright sweep. Reflectivity scales
     # the contrast around the body tone.
-    dark = lv["shadow"] + 0.5 * reflector * (lv["body"] - lv["shadow"])
+    # (0.25: the darkest tenth then sits near the photos' 5th percentile, see visual validation.)
+    dark = lv["shadow"] + 0.25 * reflector * (lv["body"] - lv["shadow"])
     tone = dark + 0.45 * soft * (lv["body"] - dark) + band * (lv["highlight"] - dark)
     tone = lv["body"] + (tone - lv["body"]) * (0.6 + 0.4 * refl)
     # Sparkle: a few micro-facets catch the light even outside the bright areas.
@@ -190,14 +195,18 @@ def metal(img: np.ndarray, m: np.ndarray, f: catalog.Finish, p: dict, scene: Sce
     tone = np.clip(tone + glint * 0.12 * sparkle * (1 - rough), 0, 1)[..., None]
     # Colour: metal tints its reflection most in the mid and dark tones (rich gold, deep
     # bronze shadows); the brightest highlights go towards white.
-    whiten = np.clip((tone - lv["body"]) / max(1e-3, 1 - lv["body"]), 0, 1) ** 1.5 * 0.7
+    whiten = np.clip((tone - lv["body"]) / max(1e-3, 1 - lv["body"]), 0, 1) ** 1.5
     base = _rgb(f.color)
+    # Gold's highlights stay warm (photos: chroma ~0.15 in the brightest fifth).
+    whiten *= 0.45 if f.id == "foil.gold" else 0.7
     if float(base @ LUMA) < 0.35:
         # A dark or coloured metal film (먹박 gloss, 적·녹·청 metallic): its colour is its own
         # reflectance, the mirrored highlights stay near white.
         col = base * (tone / lv["body"]) * (1 - whiten) + tone * whiten
     else:
-        rich = 1 + (tint - 1) * (0.6 + 1.4 * np.clip(1 - tone / lv["highlight"], 0, 1))
+        # Darker tones a little richer (photos: chroma ~0.3 in the darkest fifth, ~0.15 in the
+        # brightest), never the doubled saturation that made gold look painted.
+        rich = 1 + (tint - 1) * (1.0 + 1.2 * np.clip(1 - tone / lv["highlight"], 0, 1))
         col = rich * tone * (1 - whiten) + tone * whiten
     col = np.clip(col, 0, 1)
     a = m[..., None]

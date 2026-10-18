@@ -159,7 +159,8 @@ dieline's coordinates; a PDF-only project can be finished; finished versions mer
   of each foil / relief / spot-UV area only lends a bounded luminance map inside the mask, rejected
   when misaligned, too different, or measurably further from the photo tone levels.
 - Manufacturing checks (`finishing/constraints.py`) from `manufacturing-constraints.md`; finishing
-  plates (vector PDF per finish, dieline on a non-printing layer, spec JSON).
+  plates (vector PDF per finish in 100% K, clipped to the board + 1 mm bleed, dieline as a separate
+  `dieline.pdf`, spec JSON). Stabilization: see `docs/qa/finishing-studio-final-report.md`.
 
 **Measured (Zentra, 4096 px render, 5 finishes, Apple silicon)**
 - Preview overlay: ~8 s first time (board + masks at full size), ~2 s after, then cached per revision.

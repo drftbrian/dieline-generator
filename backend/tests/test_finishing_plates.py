@@ -10,7 +10,6 @@ import zipfile
 
 import numpy as np
 import pymupdf
-from scipy import ndimage
 
 from app.finishing import assets as fa
 from app.finishing import compose, masks, plates, svgclip
@@ -58,30 +57,11 @@ def _plates(pid, spec, fin) -> zipfile.ZipFile:
 
 def assert_same_geometry(pid, spec, vid, fin) -> dict:
     """Plate == preview inside the board (up to the anti-aliased edge), and nothing on a plate
-    beyond the board's bleed. Returns per-finish agreement (IoU) for the report."""
-    prev, (h, w) = _preview_masks(pid, spec, vid, fin)
-    z = _plates(pid, spec, fin)
-    manifest = json.loads(z.read("finishing.json"))
-    sil = masks.board(spec, max(h, w), structure_key(spec)) > 0.5
-    raster, _ = frame(spec, max(h, w), FLAT_LOOK.lighting.margin)
-    bleed_px = plates.BLEED_MM / spec.scale.mm_per_pt * raster.scale
-    beyond = ndimage.distance_transform_edt(~sil) > bleed_px + 2
-    scores = {}
-    for p in manifest["plates"]:
-        plate = plates.plate_coverage(z.read(p["file"]), spec, max(h, w))
-        a = prev.get(p["finish"], np.zeros((h, w), np.float32)) > 0.5
-        b = plate > 0.5
-        edge = ndimage.binary_dilation(a, iterations=2) & ~ndimage.binary_erosion(a, iterations=2)
-        edge |= ndimage.binary_dilation(sil, iterations=2) & ~ndimage.binary_erosion(
-            sil, iterations=2
-        )
-        wrong = (a ^ b) & sil & ~edge
-        assert not wrong.any(), (p["finish"], int(wrong.sum()), np.argwhere(wrong)[:5])
-        assert not (b & beyond).any(), (p["finish"], "plate beyond the bleed")
-        inside = sil & ~edge
-        union = ((a | b) & inside).sum()
-        scores[p["finish"]] = float(((a & b) & inside).sum() / union) if union else 1.0
-    return scores
+    beyond the board's bleed (``plates.compare``). Returns per-finish IoU."""
+    found = plates.compare(pid, spec, vid, fin)
+    for r in found:
+        assert r["wrong_px"] == 0 and r["beyond_bleed_px"] == 0, r
+    return {r["finish"]: r["iou"] for r in found}
 
 
 def test_plates_match_the_preview_for_assets_panels_and_sheet(client, project):  # noqa: F811
