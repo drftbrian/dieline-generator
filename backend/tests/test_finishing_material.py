@@ -125,3 +125,14 @@ def test_dome_magnifies_and_catches_light():
     out, changed = material.render(stripes, _stack("dome.epoxy", m), SCENE)
     assert np.array_equal(out[~changed], stripes[~changed])
     assert (out[m > 0.99] @ material.LUMA).max() > 0.9  # a specular highlight on the lens
+
+
+def test_gold_saturation_stays_in_the_photos_range():
+    """Measured on the gold study photos: chroma 0.10-0.33 per tone band (body 0.24). The
+    catalogue swatch rendered at ~0.6, a painted mustard (stabilization audit #12)."""
+    base, m = _base(), _disc()
+    out, _ = material.render(base, _stack("foil.gold", m), SCENE)
+    inside = out[m > 0.99]
+    chroma = inside.max(-1) - inside.min(-1)
+    assert 0.12 < float(np.median(chroma)) < 0.33
+    assert float(np.percentile(chroma, 95)) < 0.40

@@ -15,4 +15,5 @@ export const keys = {
   finishingSweep: (id: string, versionId: string, revision: number, light: string) =>
     ['finishing-sweep', id, versionId, revision, light] as const,
   finishingWarnings: (id: string, revision: number) => ['finishing-warnings', id, revision] as const,
+  finishingPreflight: (id: string, revision: number) => ['finishing-preflight', id, revision] as const,
 }

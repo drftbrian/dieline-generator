@@ -140,12 +140,21 @@ def test_reference_photos_match_hangul_names(tmp_path, monkeypatch):
 
     from app.config import get_settings
 
-    for name in ("후가공_금박.jpg", "후가공_은박.jpg"):
+    for name in (
+        "후가공_금박.jpg",
+        "후가공_은박.jpg",
+        "후가공_유광코팅.jpeg",
+        "후가공_부분(UV)코팅.webp",
+    ):
         Image.new("RGB", (8, 8)).save(tmp_path / unicodedata.normalize("NFD", name))
     monkeypatch.setattr(get_settings(), "finish_reference_dir", tmp_path)
     got = finish_realism.reference_photos("foil.gold")
     assert [n for n, _ in got] == ["후가공_금박.jpg"]
     assert finish_realism.reference_photos("surface.matte_lamination") == []
+    # Lamination photos are named 코팅 (audit #13); spot UV's 부분(UV)코팅 is not flood UV.
+    gloss = finish_realism.reference_photos("surface.gloss_lamination")
+    assert [n for n, _ in gloss] == ["후가공_유광코팅.jpeg"]
+    assert finish_realism.reference_photos("coating.flood_uv") == []
 
 
 class Washed(FakeProvider):

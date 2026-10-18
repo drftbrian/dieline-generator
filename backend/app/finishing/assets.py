@@ -2,8 +2,9 @@
 objects for PDF-only projects (approximate masks where objects overlap).
 
 Stored next to the project: ``figma_assets.json`` (the tree, written at import or backfilled
-for the imported file version) and ``asset_svg/<node>.svg`` (outlined vector per node, fetched
-on demand and cached; immutable for a file version).
+for the imported file version), ``asset_svg/<node>.svg`` (outlined vector per node, fetched
+on demand and cached; immutable for a file version) and ``figma_assets.version`` (the file
+version both were made from: a mismatch drops them, see ``_check_version``).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from app.spec.models import Specification
 from app.storage import repo
 
 TREE_FILE = "figma_assets.json"
+VERSION_FILE = "figma_assets.version"  # the Figma file version the tree and outlines are from
 
 
 def _project(pid: str) -> dict:
@@ -32,22 +34,65 @@ def figma_link(project: dict) -> tuple[figma.FigmaLink, str | None] | None:
     return figma.FigmaLink(meta["file_key"], meta["node_id"], meta["url"]), meta.get("version")
 
 
+def _source_version(pid: str) -> str:
+    """The Figma file version this project's print and geometry come from ("" if unknown)."""
+    link = figma_link(_project(pid))
+    return (link[1] or "") if link else ""
+
+
+def _check_version(pid: str) -> None:
+    """Drop the stored tree and outlines when they were made from another file version than
+    the project's (``VERSION_FILE``). A project's source is immutable, so this only fires if
+    its files were replaced; old projects without the stamp adopt the current version."""
+    d = repo.project_dir(pid)
+    stamp = d / VERSION_FILE
+    current = _source_version(pid)
+    if stamp.exists() and stamp.read_text() != current:
+        (d / TREE_FILE).unlink(missing_ok=True)
+        for f in (d / "asset_svg").glob("*.svg") if (d / "asset_svg").exists() else []:
+            f.unlink()
+    if not stamp.exists() or stamp.read_text() != current:
+        stamp.write_text(current)
+
+
 def save_tree(pid: str, frame_doc: dict) -> list[dict]:
     tree = figma_assets.asset_tree(frame_doc)
-    (repo.project_dir(pid) / TREE_FILE).write_text(json.dumps(tree, ensure_ascii=False))
+    d = repo.project_dir(pid)
+    (d / TREE_FILE).write_text(json.dumps(tree, ensure_ascii=False))
+    (d / VERSION_FILE).write_text(_source_version(pid))
     return tree
 
 
 def figma_tree(pid: str) -> list[dict] | None:
     """The Figma asset tree, backfilled from the imported file version if missing."""
     path = repo.project_dir(pid) / TREE_FILE
+    link = figma_link(_project(pid))
+    if link is not None:
+        _check_version(pid)
     if path.exists():
         return json.loads(path.read_text())
-    link = figma_link(_project(pid))
     if link is None:
         return None
     frame = figma.fetch_frame(link[0], version=link[1])
     return save_tree(pid, frame.document)
+
+
+def geometry_stamp(pid: str) -> tuple:
+    """Changes whenever the stored asset geometry (tree or any outline) changes: part of the
+    finishing caches' keys."""
+    d = repo.project_dir(pid)
+    files = [d / TREE_FILE, d / VERSION_FILE]
+    svg_dir = d / "asset_svg"
+    if svg_dir.exists():
+        files += sorted(svg_dir.glob("*.svg"))
+    out = []
+    for f in files:
+        try:
+            st = f.stat()
+        except FileNotFoundError:
+            continue
+        out.append((f.name, st.st_mtime_ns, st.st_size))
+    return tuple(out)
 
 
 def _panel_of(spec: Specification, bbox: list[float]) -> str | None:
@@ -115,6 +160,8 @@ def svg_path(pid: str, node_id: str) -> Path:
 
 def node_svgs(pid: str, ids: list[str]) -> dict[str, str]:
     """Outlined SVG per Figma node, cached on disk (fetched in one batch when missing)."""
+    if figma_link(_project(pid)) is not None:
+        _check_version(pid)
     out, missing = {}, []
     for nid in ids:
         p = svg_path(pid, nid)

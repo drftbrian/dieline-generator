@@ -1,7 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, api } from './client'
 import { keys } from './keys'
-import type { Assignment, FinishCatalog, FinishingSpec, FinishingWarnings, FinishLight } from './types'
+import type {
+  Assignment,
+  FinishCatalog,
+  FinishingPreflight,
+  FinishingSpec,
+  FinishingWarnings,
+  FinishLight,
+} from './types'
 
 /** Finish types (박, 형압, 코팅 …) with their adjustable parameters. Static per server build. */
 export function useFinishingCatalog() {
@@ -124,6 +131,19 @@ export function useFinishingWarnings(projectId: string, revision: number, enable
   })
 }
 
-/** Download URL of the finishing plates (one vector PDF per finish + JSON) for a saved revision. */
-export const finishingPlatesUrl = (projectId: string, revision: number) =>
-  `/api/projects/${projectId}/finishing/plates?revision=${revision}`
+/** Can a revision's plates be exported for production (every target exact source geometry)? */
+export function useFinishingPreflight(projectId: string, revision: number, enabled = true) {
+  return useQuery({
+    queryKey: keys.finishingPreflight(projectId, revision),
+    queryFn: () => api<FinishingPreflight>(`/projects/${projectId}/finishing/preflight?revision=${revision}`),
+    enabled: enabled && revision > 0,
+    staleTime: Infinity,
+    retry: 1,
+  })
+}
+
+/** Download URL of the finishing plates (one vector PDF per finish + JSON) for a saved revision.
+ * `draft`: the export for review when the preflight found approximate or missing geometry
+ * (every file is marked DRAFT / not for production; a production export is refused then). */
+export const finishingPlatesUrl = (projectId: string, revision: number, draft = false) =>
+  `/api/projects/${projectId}/finishing/plates?revision=${revision}${draft ? '&draft=true' : ''}`

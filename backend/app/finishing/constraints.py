@@ -123,6 +123,33 @@ def check(pid: str, spec: Specification, fin: fspec.FinishingSpec) -> list[dict]
             compose.target_mask(pid, spec, t, tree, sil, svgs, edge, (raster.origin, raster.scale))
             for t in a.targets
         ]
+        lost = [t.id or t.kind for t, m in zip(a.targets, ms, strict=True) if m is None]
+        if lost:
+            out.append(
+                _w(
+                    "error",
+                    "TARGET_MISSING",
+                    f"대상 {len(lost)}개의 원본 모양을 찾을 수 없어 미리보기와 판 파일에서 빠집니다.",
+                    "Figma에서 지워졌거나 내보내기에 실패한 요소입니다. 이 후가공을 지우고 "
+                    "다시 지정해주세요.",
+                    a,
+                )
+            )
+        rough = [
+            t.id
+            for t in a.targets
+            if t.kind == "asset" and t.id in svgs and not masks.svg_exact(svgs[t.id])
+        ]
+        if rough:
+            out.append(
+                _w(
+                    "info",
+                    "MASK_APPROXIMATE",
+                    "Figma 마스크·잘라내기 모양을 상자로 근사했습니다.",
+                    "판 파일에서 이 요소의 모양을 꼭 확인하세요.",
+                    a,
+                )
+            )
         ms = [m for m in ms if m is not None]
         if not ms:
             continue

@@ -15,8 +15,9 @@ const get = useFinishingStore.getState
 
 /**
  * Keeps the working finishing list of a project in step with the server: loads it, saves it
- * ~600 ms after each change (base_revision = last saved revision), reloads on a conflict and
- * reverts on a rejected save. Also owns ⌘Z / ⇧⌘Z for the list while ② is shown.
+ * ~600 ms after each change (base_revision = last saved revision). On a conflict (another tab
+ * saved first) it keeps the working list and asks: keep mine or load theirs. Reverts on a
+ * rejected save. Also owns ⌘Z / ⇧⌘Z for the list while ② is shown.
  */
 export function FinishingSync({ projectId }: { projectId: string }) {
   const qc = useQueryClient()
@@ -41,7 +42,7 @@ export function FinishingSync({ projectId }: { projectId: string }) {
   const save = useCallback(async () => {
     window.clearTimeout(timer.current)
     const s = get()
-    if (inflight.current || s.projectId !== projectId || !isDirty(s)) return
+    if (inflight.current || s.projectId !== projectId || s.status === 'conflict' || !isDirty(s)) return
     inflight.current = true
     s.setStatus('saving')
     const sent = s.assignments
@@ -56,11 +57,13 @@ export function FinishingSync({ projectId }: { projectId: string }) {
         retry = false
         qc.invalidateQueries({ queryKey: keys.finishing(projectId) })
       } else if (e instanceof ApiError && e.status === 409) {
+        retry = false
         try {
           const fresh = await fetchFinishing(projectId)
-          get().hydrate(projectId, fresh)
           qc.setQueryData(keys.finishing(projectId), fresh)
-          toast({ tone: 'warning', message: t.conflict })
+          // Unsaved work is never dropped: the user picks which copy wins.
+          get().conflicted(fresh)
+          toast({ tone: 'warning', message: t.conflict, duration: 8000 })
         } catch (e2) {
           get().setStatus('error', e2 instanceof Error ? e2.message : t.loadFailed)
           retry = false

@@ -60,23 +60,35 @@ def test_plates_are_black_vectors_in_page_coordinates(client, project):  # noqa:
             {"finish": "surface.matte_lamination", "targets": [{"kind": "sheet"}]},
         ],
     )
+    from tests.test_finishing_plates import confirm_scale
+
+    confirm_scale(client, pid)
     res = client.get(f"/api/projects/{pid}/finishing/plates")
     assert res.status_code == 200 and res.headers["content-type"] == "application/zip"
     z = zipfile.ZipFile(io.BytesIO(res.content))
     names = set(z.namelist())
-    assert {"foil_gold.pdf", "relief_emboss.pdf", "surface_matte_lamination.pdf"} <= names
+    assert {
+        "foil_gold.pdf",
+        "relief_emboss.pdf",
+        "surface_matte_lamination.pdf",
+        "dieline.pdf",
+    } <= names
     manifest = json.loads(z.read("finishing.json"))
     assert manifest["finishing_revision"] == spec["revision"]
     doc = pymupdf.open(stream=z.read("foil_gold.pdf"), filetype="pdf")
     page = doc[0]
-    # The ring is drawn as vectors where it sits on the source page, in pure black.
+    # The ring is drawn as vectors where it sits on the source page, in 100% K.
     fills = [d for d in page.get_drawings() if d.get("fill") is not None]
-    assert fills and all(tuple(round(c, 3) for c in d["fill"]) == (0, 0, 0) for d in fills)
+    streams = b"".join(
+        doc.xref_stream(x) or b"" for x in range(1, doc.xref_length()) if doc.xref_is_stream(x)
+    )
+    assert fills and b"0 0 0 1 k" in streams and b" rg" not in streams  # (MuPDF shows K as RGB)
     box = pymupdf.Rect()
     for d in fills:
         box |= d["rect"]
     assert abs(box.x0 - 400) < 2 and abs(box.y0 - 120) < 2 and abs(box.x1 - 460) < 2
-    assert any("Dieline" in o["name"] for o in doc.get_ocgs().values())
+    # The dieline is a separate guide file: a "do not print" layer still prints on some RIPs.
+    assert not doc.get_ocgs()
 
 
 def test_manufacturing_checks(client, project):  # noqa: F811

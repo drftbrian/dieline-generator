@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { finishingPlatesUrl, useFinishingSweep } from '@/api/finishing'
+import { finishingPlatesUrl, useFinishingPreflight, useFinishingSweep } from '@/api/finishing'
 import type { FinishingWarning } from '@/api/types'
 import { Button } from '@/components/ui/Button'
 import { ErrorNotice } from '@/components/ui/ErrorNotice'
@@ -85,16 +85,41 @@ export function FinishChecks({ projectId }: { projectId: string }) {
 /** 판 파일 내려받기: one vector PDF per finish + the spec JSON, zipped, for the saved revision. */
 export function FinishPlates({ projectId }: { projectId: string }) {
   const { revision, hasFinishes, pending } = useSaved(projectId)
+  const pre = useFinishingPreflight(projectId, revision, hasFinishes)
   if (!hasFinishes || revision <= 0) return null
+  const link =
+    'inline-flex h-8 w-full items-center justify-center rounded-md border px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
+  const issues = pre.data?.issues ?? []
   return (
     <section className="space-y-1.5 rounded-md border border-line p-2.5">
-      <a
-        href={finishingPlatesUrl(projectId, revision)}
-        download
-        className="inline-flex h-8 w-full items-center justify-center rounded-md border border-line bg-surface px-3 text-xs font-medium hover:bg-canvas focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-      >
-        {t.plates.download}
-      </a>
+      {pre.isPending ? (
+        <p className="text-[11px] text-ink-muted">{t.plates.checking}</p>
+      ) : pre.data && !pre.data.exact ? (
+        <div className="space-y-1.5 rounded-md border border-red-200 bg-red-50 p-2" role="alert">
+          <p className="text-xs font-medium text-red-800">{t.plates.blockedTitle}</p>
+          <p className="text-[11px] text-red-800">{t.plates.blockedBody}</p>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-red-800">
+            {issues.map((i) => (
+              <li key={`${i.assignment_id}:${i.target}`}>{t.plates.issue(i.name, i.message)}</li>
+            ))}
+          </ul>
+          <a
+            href={finishingPlatesUrl(projectId, revision, true)}
+            download
+            className={cn(link, 'border-red-300 bg-surface text-red-800 hover:bg-red-100')}
+          >
+            {t.plates.draft}
+          </a>
+        </div>
+      ) : (
+        <a
+          href={finishingPlatesUrl(projectId, revision)}
+          download
+          className={cn(link, 'border-line bg-surface hover:bg-canvas')}
+        >
+          {t.plates.download}
+        </a>
+      )}
       <p className="text-[11px] text-ink-muted">{t.plates.body}</p>
       {pending && <p className="text-[11px] text-amber-700">{t.plates.unsaved}</p>}
     </section>
