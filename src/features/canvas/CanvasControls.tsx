@@ -17,7 +17,7 @@ export function ZoomControls({ vp }: { vp: ViewportApi }) {
       onPointerDown={stop}
       className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border border-line bg-surface/95 p-0.5 shadow-sm"
     >
-      <IconButton label={t.zoomOut} onClick={() => vp.setZoom(vp.zoom / 1.25)}>
+      <IconButton label={t.zoomOut} onClick={() => vp.zoomBy(1 / 1.25)}>
         −
       </IconButton>
       <Tooltip content={t.fit}>
@@ -25,7 +25,7 @@ export function ZoomControls({ vp }: { vp: ViewportApi }) {
           {Math.round(vp.zoom * 100)}%
         </button>
       </Tooltip>
-      <IconButton label={t.zoomIn} onClick={() => vp.setZoom(vp.zoom * 1.25)}>
+      <IconButton label={t.zoomIn} onClick={() => vp.zoomBy(1.25)}>
         +
       </IconButton>
       <span className="mx-0.5 h-5 w-px bg-line" />

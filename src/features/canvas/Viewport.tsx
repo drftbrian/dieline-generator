@@ -55,24 +55,25 @@ export function Viewport({
   }, [])
 
   // Native wheel listener: React's onWheel is passive and can't preventDefault page zoom.
+  const { zoomBy, panBy } = vp
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       if (e.ctrlKey || e.metaKey) {
-        vp.setZoom(vp.zoom * Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY })
+        zoomBy(Math.exp(-e.deltaY * 0.01), { x: e.clientX, y: e.clientY })
       } else {
-        vp.panBy(-e.deltaX, -e.deltaY)
+        panBy(-e.deltaX, -e.deltaY)
       }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [vp, containerRef])
+  }, [zoomBy, panBy, containerRef])
 
-  useShortcut({ key: '=', mod: true }, () => vp.setZoom(vp.zoom * 1.25), shortcuts)
-  useShortcut({ key: '+', mod: true, shift: true }, () => vp.setZoom(vp.zoom * 1.25), shortcuts)
-  useShortcut({ key: '-', mod: true }, () => vp.setZoom(vp.zoom / 1.25), shortcuts)
+  useShortcut({ key: '=', mod: true }, () => vp.zoomBy(1.25), shortcuts)
+  useShortcut({ key: '+', mod: true, shift: true }, () => vp.zoomBy(1.25), shortcuts)
+  useShortcut({ key: '-', mod: true }, () => vp.zoomBy(1 / 1.25), shortcuts)
   useShortcut({ key: 'Digit0', shift: true }, () => vp.fit(), shortcuts)
   useShortcut({ key: 'Digit1', shift: true }, () => vp.setZoom(1), shortcuts)
   useShortcut({ key: 'ArrowLeft' }, () => vp.panBy(60, 0), shortcuts)
