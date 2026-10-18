@@ -14,7 +14,7 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 
 ### Frontend (`src/`)
 - `api/`: fetch client + TanStack Query hooks per resource (`generate.ts` has `useStartFlat` / `useStartMerge`; also figma, projects, references, history, jobs, source, spec).
-- `features/`: `flat` (step 2 panel), `finishing` (② finishing studio: asset picking, finish picker, applied list, checks, save/sweep/plates), `merge` (step 3 panel: reference drop zone, Claude's read-only reading, form 자동/평면/입체, flat-version picker), `canvas` (source / flat / merge viewer + job status), `history` (version strip), `inspector` (source facts), `review` (structural review), `analysis`, `upload`, `projects`, `studio` (top bar, shared step-panel pieces, `versions.ts` helpers).
+- `features/`: `flat` (step 2 panel), `finishing` (② finishing studio: asset picking, finish picker, applied list, checks, save/sweep/plates), `merge` (step 3 panel: mode 구조 합성 / AI 사진 글자 교정 / 기존 AI 합성, reference or AI-photo drop zone, Claude's read-only reading, shared corner editor `QuadEditor`, flat-version picker), `canvas` (source / flat / merge viewer + job status), `history` (version strip), `inspector` (source facts), `review` (structural review), `analysis`, `upload`, `projects`, `studio` (top bar, shared step-panel pieces, `versions.ts` helpers).
 - `pages/`: Dashboard, Analyze, StructuralReview, Studio, WorkspaceGate, NotFound. `app/`: shell, providers, router.
 - `stores/`: zustand (`useCanvasStore`: view `source|flat|merge`, selected `flatId` / `mergeId`, `mergeSourceId`, toasts, UI).
 - `i18n/ko/*`: all Korean UI strings.
@@ -34,7 +34,7 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 - `figma/`: Figma REST client and layer/content extraction.
 - `pdf/`: extraction, `dieline.py` (cut/crease/annotation classification), `rules.py` (layer-name table), measure, physical sizes, validation.
 - `render/`: `layers.py` (artwork, silhouette minus openings, creases), `shading.py`, `surface.py` (light/surface transfer), `carton3d.py` (fold the box), `look.py` (`verify`, ΔE).
-- `typography/` (PoC, script only: `scripts/typography_poc.py`): Figma typography manifest, visible-face registration, verification and text-corrected / strict composites of a generated photo (PRD v2 §4A).
+- `typography/`: Figma typography manifest, visible-face registration, verification and text-corrected / strict composites of a generated photo (PRD v2 §4A); `correct.correct_photo` is shared by the ③ photo-first job (`services/photo_first.py`) and `scripts/typography_poc.py`.
 - `jobs/runner.py`: background jobs with stages (analyze, render, generate, merge).
 - `storage/db.py` (schema, additive migrations, dropped tables), `storage/repo.py`.
 - `spec/models.py`: Specification models and the fixed `FLAT_LOOK`.
@@ -47,6 +47,7 @@ Dieline Generator: a packaging dieline in, photoreal images out, with the printe
 - References: `GET|POST /projects/{pid}/references`, `POST /{rid}/analyze`, `DELETE /{rid}`, `GET /{rid}/image`, `/{rid}/thumb`
 - Generation: `POST /projects/{pid}/generate` (`{}`), `POST /projects/{pid}/merge` (`{reference_id, flat_version_id?, form: auto|flat|folded}`), `POST /projects/{pid}/compose` (`{reference_id, flat_version_id?, harmonize, strength}`), `GET /jobs/{id}`, `POST /jobs/{id}/cancel`
 - Structure / scene: `GET /projects/{pid}/structure`, `.../structure/fold?state`, `.../structure/preview?pose`, `GET|PUT /projects/{pid}/references/{rid}/scene`, `POST .../scene/detect`, `GET /projects/{pid}/compose/preview?reference_id&flat_version_id&layer`, `GET /projects/{pid}/versions/{vid}/layers/{name}`
+- Photo-first (③ AI 사진 글자 교정, no model call): `GET|POST /projects/{pid}/candidates`, `GET .../candidates/panels`, `PUT .../candidates/{cid}/faces`, `DELETE .../candidates/{cid}`, `GET .../candidates/{cid}/image|thumb`, `POST /projects/{pid}/typography` (`{candidate_id}`; layers `raw`, `strict`, `repair_preview`, `repair_masks`)
 - Finishing: `GET /finishing/catalog`, `GET|PUT /projects/{pid}/finishing`, `GET .../finishing/revisions/{rev}`, `GET .../finishing/preview?version_id&revision&light` (RGBA overlay, `X-Overlay-Rect`), `.../finishing/sweep` (GIF), `.../finishing/warnings`, `.../finishing/preflight`, `.../finishing/plates` (zip; `?draft=true` when preflight is not exact), `GET .../assets`, `.../assets/{aid}/mask`, `POST .../assets/hit`, `POST /projects/{pid}/versions/{vid}/finish` (`{revision?, ai, strength, light}`)
 - History: `GET /projects/{pid}/history`, `GET|DELETE /projects/{pid}/versions/{vid}`, `GET .../image` (`?download=1`), `GET .../thumb`
 - Errors are `{code, message, hint, details}` with Korean messages (e.g. 409 `STRUCTURE_UNCONFIRMED`, 503 `PROVIDER_UNAVAILABLE`, 429 `TOO_MANY_GENERATIONS`, 422 `ARTWORK_MISMATCH`).

@@ -23,27 +23,29 @@ function precheck(file: File): ApiError | null {
   return null
 }
 
-/** Drop (or pick) the one reference photo for the next merge. */
-export function ReferenceDrop({
-  projectId,
+/** Drop (or pick) an image: the reference photo, or the AI photo to correct. */
+export function ImageDrop({
   current,
-  onUploaded,
+  pending,
+  error,
+  label,
+  onFile,
 }: {
-  projectId: string
-  current: Reference | null
-  onUploaded: (ref: Reference) => void
+  current: { image_url: string; filename: string } | null
+  pending: boolean
+  error: unknown
+  label: string
+  onFile: (file: File) => void
 }) {
-  const upload = useUploadReference(projectId)
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
   const [localError, setLocalError] = useState<ApiError | null>(null)
 
   const add = (file: File | undefined) => {
-    if (!file || upload.isPending) return
+    if (!file || pending) return
     const pre = precheck(file)
     setLocalError(pre)
-    if (pre) return
-    upload.mutate(file, { onSuccess: onUploaded })
+    if (!pre) onFile(file)
   }
 
   return (
@@ -51,7 +53,7 @@ export function ReferenceDrop({
       <div
         role="button"
         tabIndex={0}
-        aria-label={t.drop}
+        aria-label={label}
         onClick={() => input.current?.click()}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -85,12 +87,12 @@ export function ReferenceDrop({
           </>
         ) : (
           <div className="px-3 py-8">
-            <p className="text-ink">{t.drop}</p>
+            <p className="text-ink">{label}</p>
             <p className="mt-1 text-accent">[{t.pick}]</p>
             <p className="mt-1 text-ink-muted">{t.formats}</p>
           </div>
         )}
-        {upload.isPending && (
+        {pending && (
           <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-surface/80 text-ink-muted">
             <Spinner className="size-3" /> {t.uploading}
           </div>
@@ -106,7 +108,29 @@ export function ReferenceDrop({
           }}
         />
       </div>
-      <ErrorNotice error={localError ?? upload.error} />
+      <ErrorNotice error={localError ?? error} />
     </div>
+  )
+}
+
+/** Drop (or pick) the one reference photo for the next merge. */
+export function ReferenceDrop({
+  projectId,
+  current,
+  onUploaded,
+}: {
+  projectId: string
+  current: Reference | null
+  onUploaded: (ref: Reference) => void
+}) {
+  const upload = useUploadReference(projectId)
+  return (
+    <ImageDrop
+      current={current}
+      pending={upload.isPending}
+      error={upload.error}
+      label={t.drop}
+      onFile={(file) => upload.mutate(file, { onSuccess: onUploaded })}
+    />
   )
 }

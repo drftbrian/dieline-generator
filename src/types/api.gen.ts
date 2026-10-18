@@ -399,6 +399,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/typography": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Typography
+         * @description Step 3, photo-first mode: correct an uploaded AI photo with Figma's own lettering
+         *     (no model call). The text-corrected image becomes the version; the raw photo, the strict
+         *     output and the repair preview are kept beside it.
+         */
+        post: operations["start_typography_api_projects__pid__typography_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -930,9 +952,122 @@ export interface paths {
         /**
          * Version Layer
          * @description A saved intermediate of a structural composition (deterministic precomposition, model
-         *     output, layers).
+         *     output, layers) or of a photo-first correction (the raw photo, strict output, repair
+         *     preview and masks).
          */
         get: operations["version_layer_api_projects__pid__versions__vid__layers__name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates/panels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Candidate Panels
+         * @description The panels that can be a visible face of the closed carton (not flaps).
+         */
+        get: operations["candidate_panels_api_projects__pid__candidates_panels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Candidates */
+        get: operations["list_candidates_api_projects__pid__candidates_get"];
+        put?: never;
+        /**
+         * Upload Candidate
+         * @description An AI-generated product photo, kept byte for byte. No model reads it.
+         */
+        post: operations["upload_candidate_api_projects__pid__candidates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates/{cid}/faces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Faces
+         * @description Which panels are visible in the photo and the rough corners of each face.
+         */
+        put: operations["put_faces_api_projects__pid__candidates__cid__faces_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates/{cid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Candidate */
+        delete: operations["delete_candidate_api_projects__pid__candidates__cid__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates/{cid}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidate Image */
+        get: operations["candidate_image_api_projects__pid__candidates__cid__image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/candidates/{cid}/thumb": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Candidate Thumb */
+        get: operations["candidate_thumb_api_projects__pid__candidates__cid__thumb_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1062,6 +1197,11 @@ export interface components {
             /** Updated At */
             updated_at?: string | null;
         };
+        /** Body_upload_candidate_api_projects__pid__candidates_post */
+        Body_upload_candidate_api_projects__pid__candidates_post: {
+            /** File */
+            file: string;
+        };
         /** Body_upload_reference_api_projects__pid__references_post */
         Body_upload_reference_api_projects__pid__references_post: {
             /** File */
@@ -1098,6 +1238,37 @@ export interface components {
             depth_mm: number;
             /** Height Mm */
             height_mm: number;
+        };
+        /** CandidateFace */
+        CandidateFace: {
+            /** Panel */
+            panel: string;
+            /** Quad */
+            quad: number[][];
+        };
+        /** CandidateFacesIn */
+        CandidateFacesIn: {
+            /** Faces */
+            faces: components["schemas"]["CandidateFace"][];
+        };
+        /** CandidateOut */
+        CandidateOut: {
+            /** Id */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Faces */
+            faces: components["schemas"]["CandidateFace"][];
+            /** Image Url */
+            image_url: string;
+            /** Thumb Url */
+            thumb_url: string;
+            /** Created At */
+            created_at: string;
         };
         /** CatalogOut */
         CatalogOut: {
@@ -1506,7 +1677,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "analyze" | "render" | "generate" | "merge" | "enhance" | "finish" | "compose";
+            type: "analyze" | "render" | "generate" | "merge" | "enhance" | "finish" | "compose" | "typography";
             /**
              * Status
              * @enum {string}
@@ -1627,6 +1798,17 @@ export interface components {
              * Height Mm
              * @default 0
              */
+            height_mm: number;
+        };
+        /** PanelChoice */
+        PanelChoice: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Width Mm */
+            width_mm: number;
+            /** Height Mm */
             height_mm: number;
         };
         /** PanelName */
@@ -2039,6 +2221,14 @@ export interface components {
                 number
             ] | null;
         };
+        /**
+         * TypographyIn
+         * @description Step 3, photo-first mode: correct an uploaded AI photo with Figma's own lettering.
+         */
+        TypographyIn: {
+            /** Candidate Id */
+            candidate_id: string;
+        };
         /** UploadOut */
         UploadOut: {
             project: components["schemas"]["ProjectOut"];
@@ -2108,6 +2298,10 @@ export interface components {
             background_max?: number | null;
             /** Outside Echo Px */
             outside_echo_px?: number | null;
+            /** Typography */
+            typography?: {
+                [key: string]: unknown;
+            } | null;
             /** Texture Std */
             texture_std?: number | null;
             /** Cloud Std */
@@ -2142,7 +2336,7 @@ export interface components {
             /** Reference Id */
             reference_id?: string | null;
             /** Form */
-            form?: ("flat" | "folded" | "structural") | null;
+            form?: ("flat" | "folded" | "structural" | "photo_first") | null;
             enhancement?: components["schemas"]["EnhancementOut"] | null;
             finishing?: components["schemas"]["FinishedOut"] | null;
             verify: components["schemas"]["VerifyOut"] | null;
@@ -3074,6 +3268,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ComposeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_typography_api_projects__pid__typography_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypographyIn"];
             };
         };
         responses: {
@@ -4076,6 +4305,233 @@ export interface operations {
                 pid: string;
                 vid: string;
                 name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    candidate_panels_api_projects__pid__candidates_panels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PanelChoice"][];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_candidates_api_projects__pid__candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateOut"][];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upload_candidate_api_projects__pid__candidates_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_candidate_api_projects__pid__candidates_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    put_faces_api_projects__pid__candidates__cid__faces_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CandidateFacesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CandidateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_candidate_api_projects__pid__candidates__cid__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    candidate_image_api_projects__pid__candidates__cid__image_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                cid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    candidate_thumb_api_projects__pid__candidates__cid__thumb_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                cid: string;
             };
             cookie?: never;
         };

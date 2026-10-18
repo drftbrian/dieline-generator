@@ -32,6 +32,9 @@ LAYERS = (
 )
 
 
+PHOTO_FIRST_LAYERS = ("strict", "repair_preview", "repair_masks")  # photo-first typography
+
+
 class SceneIn(BaseModel):
     instances: list[dict]
     settings: dict = {}
@@ -108,14 +111,15 @@ def compose_preview(pid: str, reference_id: str, flat_version_id: str, layer: st
 @router.get("/projects/{pid}/versions/{vid}/layers/{name}")
 def version_layer(pid: str, vid: str, name: str):
     """A saved intermediate of a structural composition (deterministic precomposition, model
-    output, layers)."""
+    output, layers) or of a photo-first correction (the raw photo, strict output, repair
+    preview and masks)."""
     v = repo.get("versions", vid)
     if v is None or v["project_id"] != pid:
         raise ApiError(404, "VERSION_NOT_FOUND", "버전을 찾을 수 없습니다.")
     files = {
         "structure": f"{vid}_structure.png",
         "raw": f"{vid}_raw.png",
-        **{n: f"{vid}_layer_{n}.png" for n in LAYERS},
+        **{n: f"{vid}_layer_{n}.png" for n in (*LAYERS, *PHOTO_FIRST_LAYERS)},
     }
     if name not in files:
         raise ApiError(422, "LAYER_UNKNOWN", f"알 수 없는 레이어입니다: {name}")

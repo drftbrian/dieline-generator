@@ -104,7 +104,9 @@ def version_out(v: dict) -> VersionOut:
         legacy=is_legacy(v),
         status=v["status"],
         provider_label=(
-            "구조 합성 · 코드 렌더"
+            "AI 사진 · Figma 글자 교정"
+            if settings.get("merge_mode") == "photo_first_text_corrected"
+            else "구조 합성 · 코드 렌더"
             if settings.get("merge_mode") == "structural" and not settings.get("harmonize")
             else f"{model.label} · 구조 합성 AI 조화"
             if model and settings.get("merge_mode") == "structural"

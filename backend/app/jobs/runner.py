@@ -28,6 +28,7 @@ STAGES = {
     "enhance": ["prepare", "model", "register", "extract", "composite", "verify"],
     "finish": ["compose", "model", "verify"],
     "compose": ["structure", "compose", "model", "verify"],
+    "typography": ["register", "verify", "correct", "save"],
 }
 
 

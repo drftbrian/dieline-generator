@@ -89,6 +89,7 @@ class FaceResult:
     light: dict = field(default_factory=dict)
     after: dict = field(default_factory=dict)
     review: list[str] = field(default_factory=list)
+    raster: tuple[int, int] = (0, 0)  # h, w of the panel raster that windows refer to
 
 
 def render_panel(pdf: bytes, bbox_pt, size: tuple[int, int]) -> np.ndarray:
@@ -578,7 +579,7 @@ def correct_face(
     photo: np.ndarray, reg: rg.Registration, src: FaceSource, items: list[dict]
 ) -> tuple[FaceResult, dict[str, tuple[np.ndarray, np.ndarray]] | None]:
     """Verify one registered face; return its corrected and strict layers (target, mask)."""
-    res = FaceResult(src.face_id, reg.report())
+    res = FaceResult(src.face_id, reg.report(), raster=src.rgb.shape[:2])
     if not reg.ok:
         res.review.append(f"{src.face_id}: registration rejected ({reg.reason})")
         return res, None

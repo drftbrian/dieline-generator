@@ -11,6 +11,7 @@ from app.api import (
     generate,
     health,
     history,
+    photo_first,
     projects,
     references,
     scene,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
         finishing.router,
         structure.router,
         scene.router,
+        photo_first.router,
     ):
         app.include_router(r, prefix="/api")
     return app

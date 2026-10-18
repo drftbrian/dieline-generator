@@ -19,6 +19,7 @@ from app.api.schemas import (
     GenerateOut,
     JobOut,
     MergeIn,
+    TypographyIn,
 )
 from app.config import get_settings
 from app.errors import ApiError
@@ -30,6 +31,7 @@ from app.services import (
     enhance_prompt,
     finish_realism,
     merge,
+    photo_first,
     pipeline,
     specs,
     structural_merge,
@@ -55,7 +57,7 @@ def _check_can_start(project: dict, needs_model: bool = True) -> None:
             hint="backend/.env에 GEMINI_API_KEY를 추가하세요.",
         )
     if (
-        runner.active_count("generate", "merge", "enhance", "finish", "compose")
+        runner.active_count("generate", "merge", "enhance", "finish", "compose", "typography")
         >= get_settings().max_concurrent_generations
     ):
         raise ApiError(
@@ -266,6 +268,31 @@ def start_compose(pid: str, body: ComposeIn, request: Request):
         },
     )
     remember(request, f"compose:{pid}", 202, out.model_dump())
+    return out
+
+
+@router.post("/projects/{pid}/typography", response_model=GenerateOut, status_code=202)
+def start_typography(pid: str, body: TypographyIn, request: Request):
+    """Step 3, photo-first mode: correct an uploaded AI photo with Figma's own lettering
+    (no model call). The text-corrected image becomes the version; the raw photo, the strict
+    output and the repair preview are kept beside it."""
+    if replay := idempotent_replay(request, f"typography:{pid}"):
+        return replay
+    project = repo.project_or_404(pid)
+    _check_can_start(project, needs_model=False)
+    spec = specs.load(project)
+    cand = photo_first.get_candidate(pid, body.candidate_id)
+    faces = photo_first.validate_faces(spec, cand.get("faces") or [])
+    out = _start(
+        pid,
+        "typography",
+        photo_first.run_typography,
+        settings={"merge_mode": "photo_first_text_corrected"},
+        kind="merge",
+        reference_ids=[],
+        scene_json={"candidate_id": cand["id"], "form": "photo_first", "faces": faces},
+    )
+    remember(request, f"typography:{pid}", 202, out.model_dump())
     return out
 
 

@@ -100,7 +100,7 @@ class JobStage(BaseModel):
 class JobOut(BaseModel):
     id: str
     project_id: str
-    type: Literal["analyze", "render", "generate", "merge", "enhance", "finish", "compose"]
+    type: Literal["analyze", "render", "generate", "merge", "enhance", "finish", "compose", "typography"]
     status: Literal["pending", "running", "done", "failed", "cancelled"]
     progress: float
     stages: list[JobStage]
@@ -223,6 +223,39 @@ class ComposeIn(BaseModel):
     strength: float = Field(0.7, ge=0.0, le=1.0)
 
 
+class TypographyIn(BaseModel):
+    """Step 3, photo-first mode: correct an uploaded AI photo with Figma's own lettering."""
+
+    candidate_id: str
+
+
+class CandidateFace(BaseModel):
+    panel: str  # a main panel id of the confirmed spec
+    quad: list[list[float]]  # 4 corners (fractions of the photo), panel TL TR BR BL
+
+
+class CandidateFacesIn(BaseModel):
+    faces: list[CandidateFace]
+
+
+class CandidateOut(BaseModel):
+    id: str
+    filename: str
+    width: int
+    height: int
+    faces: list[CandidateFace]
+    image_url: str
+    thumb_url: str
+    created_at: str
+
+
+class PanelChoice(BaseModel):
+    id: str
+    name: str
+    width_mm: float
+    height_mm: float
+
+
 class EnhanceIn(BaseModel):
     """Post-render AI material enhancement of a finished deterministic flat render."""
 
@@ -331,6 +364,9 @@ class VerifyOut(BaseModel):
     ai_iou: float | None = None  # the model's board against ours
     background_max: float | None = None  # brightest pixel outside the board (8-bit)
     outside_echo_px: int | None = None  # pixels brighter than the background outside (0)
+    # Photo-first typography correction: status ("ok" | "review_required"), what to review,
+    # per face registration / item verdicts / shading, backdrop overlays removed.
+    typography: dict | None = None
     texture_std: float | None = None  # fibre variation on clean paper
     cloud_std: float | None = None  # mottling at 1-10 mm on clean paper
     paper_chroma: float | None = None  # colour cast of clean paper (8-bit)
@@ -348,7 +384,7 @@ class VersionOut(BaseModel):
     model_id: str
     flat_version_id: str | None = None  # merge: the flat render it was made from
     reference_id: str | None = None  # merge: the reference photo
-    form: Literal["flat", "folded", "structural"] | None = None  # merge: the form used
+    form: Literal["flat", "folded", "structural", "photo_first"] | None = None  # merge: the form used
     # A post-render AI material enhancement of a deterministic flat render (else None).
     enhancement: EnhancementOut | None = None
     finishing: FinishedOut | None = None  # finishes baked in (else None)

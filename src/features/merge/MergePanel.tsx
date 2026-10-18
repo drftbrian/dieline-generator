@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useStartMerge } from '@/api/generate'
 import { useDeleteReference, useReferences } from '@/api/references'
-import type { MergeForm } from '@/api/types'
+import type { MergeForm, Version } from '@/api/types'
 import { Button } from '@/components/ui/Button'
 import { SegmentedControl, Select } from '@/components/ui/controls'
 import { ErrorNotice } from '@/components/ui/ErrorNotice'
@@ -15,9 +15,16 @@ import { formatDateTime } from '@/lib/format'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { ReferenceDrop } from './ReferenceDrop'
 import { ReferenceReading } from './ReferenceReading'
+import { PhotoFirstCorrect } from './PhotoFirstCorrect'
 import { StructuralCompose } from './StructuralCompose'
 
 const t = ko.studio.merge
+const MODES = ['structural', 'photo_first', 'legacy'] as const
+type Mode = (typeof MODES)[number]
+
+/** Which mode made a merge version (its errors show only in that mode). */
+const modeOf = (form: Version['form']): Mode =>
+  form === 'structural' ? 'structural' : form === 'photo_first' ? 'photo_first' : 'legacy'
 
 /** ③ 레퍼런스 합성: our approved flat render in place of the packaging in one reference photo. */
 export function MergePanel({ project }: StudioRegionProps) {
@@ -31,7 +38,7 @@ export function MergePanel({ project }: StudioRegionProps) {
   const setMergeSource = useCanvasStore((s) => s.setMergeSource)
   const [refId, setRefId] = useState<string | null>(null)
   const [form, setForm] = useState<MergeForm>('auto')
-  const [mode, setMode] = useState<'structural' | 'legacy'>('structural')
+  const [mode, setMode] = useState<Mode>('structural')
 
   const list = refs.data ?? []
   const reference = list.find((r) => r.id === refId) ?? list[list.length - 1] ?? null
@@ -50,6 +57,21 @@ export function MergePanel({ project }: StudioRegionProps) {
 
   return (
     <StepPanel title={t.title} intro={t.intro}>
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium">{t.mode}</p>
+        <SegmentedControl<Mode>
+          label={t.mode}
+          value={mode}
+          onChange={setMode}
+          options={MODES.map((value) => ({ value, label: t.modes[value] }))}
+        />
+        <p className="text-xs text-ink-muted">{t.modeHint[mode]}</p>
+      </div>
+
+      {mode === 'photo_first' && <PhotoFirstCorrect projectId={pid} shown={shown} />}
+
+      {mode !== 'photo_first' && (
+        <>
       <ReferenceDrop projectId={pid} current={reference} onUploaded={(r) => setRefId(r.id)} />
       {refs.error && <ErrorNotice error={refs.error} />}
 
@@ -88,17 +110,6 @@ export function MergePanel({ project }: StudioRegionProps) {
           </button>
         </>
       )}
-
-      <div className="space-y-1.5 border-t border-line pt-4">
-        <p className="text-xs font-medium">{t.mode}</p>
-        <SegmentedControl<'structural' | 'legacy'>
-          label={t.mode}
-          value={mode}
-          onChange={setMode}
-          options={(['structural', 'legacy'] as const).map((value) => ({ value, label: t.modes[value] }))}
-        />
-        <p className="text-xs text-ink-muted">{t.modeHint[mode]}</p>
-      </div>
 
       {mode === 'legacy' && (
         <div className="space-y-1.5 border-t border-line pt-4">
@@ -154,13 +165,16 @@ export function MergePanel({ project }: StudioRegionProps) {
         </div>
       )}
 
+        </>
+      )}
+
       {running.map((v) => (
         <JobStages key={v.id} version={v} />
       ))}
-      {last?.status === 'failed' && (last.form === 'structural') === (mode === 'structural') && (
-        <VersionError version={last} />
+      {last?.status === 'failed' && modeOf(last.form) === mode && <VersionError version={last} />}
+      {shown && !shown.legacy && shown.form !== 'photo_first' && mode !== 'photo_first' && (
+        <VerifyResult verify={shown.verify} />
       )}
-      {shown && !shown.legacy && <VerifyResult verify={shown.verify} />}
     </StepPanel>
   )
 }
