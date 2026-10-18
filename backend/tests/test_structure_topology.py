@@ -269,13 +269,14 @@ def test_a_cut_where_a_body_fold_should_be_disconnects_the_net():
     assert info["family"] is None and not info["supported"]
 
 
-def test_crash_lock_bottom_is_recognised_but_not_supported():
+def test_crash_lock_bottom_is_recognised_and_supported_closed_only():
+    """Decision B1: a crash-lock bottom is folded closed only (an approximation)."""
     top, info = _analyze(spec_of(*net(bottom="crash")))
     assert top.ok
     assert any(e.orientation == "diagonal" for e in top.folds)
-    assert info["ends"]["bottom"]["type"] == "crash_lock"
-    assert info["style"] == "tuck_top_crash_lock_bottom" and not info["supported"]
-    assert any("bottom" in r for r in info["reasons"])
+    bottom = info["ends"]["bottom"]
+    assert bottom["type"] == "crash_lock" and bottom["closed_only"]
+    assert info["style"] == "tuck_top_crash_lock_bottom" and info["supported"]
 
 
 def test_an_unresolved_line_stops_the_analysis():

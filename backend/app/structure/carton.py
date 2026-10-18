@@ -167,10 +167,14 @@ def classify(top: Topology, box=None) -> dict:
                 "panels": sorted(members),
             }
         if diag:
+            # Decision B1: the crash-lock (auto) bottom is folded closed only, as an
+            # approximation of the set-up carton; its fold sequence and open state are not.
             info["type"] = "crash_lock"
-            info["supported"] = False
+            info["supported"] = True
+            info["closed_only"] = True
             info["note"] = (
-                "대각선 접는 선(접착 삼각형)이 있는 자동 잠금 바닥입니다. 아직 접기를 지원하지 않습니다."
+                "대각선 접는 선(접착 삼각형)이 있는 자동 잠금 바닥입니다. 닫힌 모양만 근사로 "
+                "지원합니다(열린 바닥·접는 과정은 지원하지 않음)."
             )
         elif roots:
             on_w = [(bp, f) for bp, f, _ in roots if roles[bp] == "W"]

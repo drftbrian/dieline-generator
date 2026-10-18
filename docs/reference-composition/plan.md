@@ -6,7 +6,7 @@
 |---|---|---|
 | M1 ✅ | Audit (`docs/structural-composition/current-system-audit.md`), PRD, architecture, this plan | User review |
 | M2 ✅ | `structure/topology.py`, `structure/carton.py`, `GET /structure`, `scripts/topology_diagram.py`, tests | Topology tests; Zentra + fixtures report (`m2-topology-report.md`) |
-| M3 | Fold solver: a tree of rigid transforms from a root W panel. Each fold rotates its subtree about the crease axis by its angle (body 90°, lid 90°, tuck 90°, dust flaps 90° inward), with mountain/valley from `side_a` and the print side. Includes board thickness offset, closure check (lid edge meets the far W panel within tolerance; glue flap lands on the last body panel), intersection check (closure panels and dust flaps), fold states (closed / open top / partial) and pose presets. Preview via the server-side renderer. | **Stop for visual validation** (orbit renders at several poses, mm-accurate dims, closure residuals) |
+| M3 ✅ (awaiting visual validation, `m3-folding-report.md`) | Fold solver: a tree of rigid transforms from a root W panel. Each fold rotates its subtree about the crease axis by its angle (body 90°, lid 90°, tuck 90°, dust flaps 90° inward), with mountain/valley from `side_a` and the print side. Includes board thickness offset, closure check (lid edge meets the far W panel within tolerance; glue flap lands on the last body panel), intersection check (closure panels and dust flaps), fold states (closed / open top / partial) and pose presets. Preview via the server-side renderer. | **Stop for visual validation** (orbit renders at several poses, mm-accurate dims, closure residuals) |
 | M4 | Per-panel textures from the flat render through `frame_json` (exact page → pixel). Outside = print; inside = unprinted board. Finishing masks per panel. Text-orientation and alignment tests. | 400% crops of small text on folded faces vs the flat render (ΔE / SSIM) |
 | M5 | Reference reading → camera, ground and light with confidences. User controls (position, scale, rotation, pose, fold, camera, ground, light, shadow). Contact shadow and occlusion. Object mask + removal. Deterministic pre-composition saved. | Environment-only and with-package references |
 | M6 | Optional harmonization (Gemini). The package region is protected: print × light map only, as in steps 2 and 3. Rejects drift, ghosting, duplicates and silhouette changes, with a fallback. | Fake-provider tests: timeout, invalid output, drift |
@@ -32,7 +32,14 @@ See the PRD table.
 - **Performance:** the numpy z-buffer at 2048 px with polygonal panels is fine. 4K exports with
   supersampling need measuring in M5.
 
-## Blockers / decisions needed from the user
+## Blockers / decisions
+
+**Decided:**
+- B1 = (a): the crash-lock bottom is folded closed only, as an approximation.
+- B3 = server-rendered preview, for now.
+
+**Still open:** B2 (before M5/M7) and B4 (not blocking).
+
 - **B1: Zentra's bottom is a crash-lock (auto) bottom.** It has diagonal glued triangles. The
   command forbids claiming crash-lock folding before rules are implemented and validated.
   Options:

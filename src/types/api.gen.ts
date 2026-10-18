@@ -791,6 +791,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/structure/fold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Fold
+         * @description The carton folded deterministically from its fold graph: per panel its role, layer and
+         *     4x4 transform (flat-net mm -> world mm) and folded outline, plus the closure, containment
+         *     and intersection checks. 409 when the structure is not supported.
+         */
+        get: operations["get_fold_api_projects__pid__structure_fold_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/structure/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preview
+         * @description A structural preview PNG of the folded carton (panels coloured by role, inside faces as
+         *     plain board). Server-rendered and deterministic: the same pixels as the export path.
+         */
+        get: operations["get_preview_api_projects__pid__structure_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3622,6 +3665,79 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_fold_api_projects__pid__structure_fold_get: {
+        parameters: {
+            query?: {
+                state?: string;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_preview_api_projects__pid__structure_preview_get: {
+        parameters: {
+            query?: {
+                pose?: string;
+                state?: string | null;
+                azimuth?: number | null;
+                elevation?: number | null;
+                width?: number;
+                height?: number;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Default Response */
