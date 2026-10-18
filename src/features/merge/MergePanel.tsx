@@ -15,6 +15,7 @@ import { formatDateTime } from '@/lib/format'
 import { useCanvasStore } from '@/stores/useCanvasStore'
 import { ReferenceDrop } from './ReferenceDrop'
 import { ReferenceReading } from './ReferenceReading'
+import { StructuralCompose } from './StructuralCompose'
 
 const t = ko.studio.merge
 
@@ -30,6 +31,7 @@ export function MergePanel({ project }: StudioRegionProps) {
   const setMergeSource = useCanvasStore((s) => s.setMergeSource)
   const [refId, setRefId] = useState<string | null>(null)
   const [form, setForm] = useState<MergeForm>('auto')
+  const [mode, setMode] = useState<'structural' | 'legacy'>('structural')
 
   const list = refs.data ?? []
   const reference = list.find((r) => r.id === refId) ?? list[list.length - 1] ?? null
@@ -88,15 +90,28 @@ export function MergePanel({ project }: StudioRegionProps) {
       )}
 
       <div className="space-y-1.5 border-t border-line pt-4">
-        <p className="text-xs font-medium">{t.form}</p>
-        <SegmentedControl<MergeForm>
-          label={t.form}
-          value={form}
-          onChange={setForm}
-          options={(['auto', 'flat', 'folded'] as const).map((value) => ({ value, label: t.formOptions[value] }))}
+        <p className="text-xs font-medium">{t.mode}</p>
+        <SegmentedControl<'structural' | 'legacy'>
+          label={t.mode}
+          value={mode}
+          onChange={setMode}
+          options={(['structural', 'legacy'] as const).map((value) => ({ value, label: t.modes[value] }))}
         />
-        <p className="text-xs text-ink-muted">{t.formHint[form]}</p>
+        <p className="text-xs text-ink-muted">{t.modeHint[mode]}</p>
       </div>
+
+      {mode === 'legacy' && (
+        <div className="space-y-1.5 border-t border-line pt-4">
+          <p className="text-xs font-medium">{t.form}</p>
+          <SegmentedControl<MergeForm>
+            label={t.form}
+            value={form}
+            onChange={setForm}
+            options={(['auto', 'flat', 'folded'] as const).map((value) => ({ value, label: t.formOptions[value] }))}
+          />
+          <p className="text-xs text-ink-muted">{t.formHint[form]}</p>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <p className="text-xs font-medium">{t.flatSource}</p>
@@ -121,24 +136,30 @@ export function MergePanel({ project }: StudioRegionProps) {
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <Button variant="primary" className="h-10 w-full justify-center" disabled={!!blocked || start.isPending} onClick={submit}>
-          {start.isPending ? (
-            <>
-              <Spinner className="size-3.5" /> {t.starting}
-            </>
-          ) : (
-            t.generate
-          )}
-        </Button>
-        {blocked && <p className="text-xs text-ink-muted">{blocked}</p>}
-        {start.error && <ErrorNotice error={start.error} />}
-      </div>
+      {mode === 'structural' && <StructuralCompose projectId={pid} reference={reference} flat={flat} />}
+
+      {mode === 'legacy' && (
+        <div className="space-y-1.5">
+          <Button variant="primary" className="h-10 w-full justify-center" disabled={!!blocked || start.isPending} onClick={submit}>
+            {start.isPending ? (
+              <>
+                <Spinner className="size-3.5" /> {t.starting}
+              </>
+            ) : (
+              t.generate
+            )}
+          </Button>
+          {blocked && <p className="text-xs text-ink-muted">{blocked}</p>}
+          {start.error && <ErrorNotice error={start.error} />}
+        </div>
+      )}
 
       {running.map((v) => (
         <JobStages key={v.id} version={v} />
       ))}
-      {last?.status === 'failed' && <VersionError version={last} />}
+      {last?.status === 'failed' && (last.form === 'structural') === (mode === 'structural') && (
+        <VersionError version={last} />
+      )}
       {shown && !shown.legacy && <VerifyResult verify={shown.verify} />}
     </StepPanel>
   )

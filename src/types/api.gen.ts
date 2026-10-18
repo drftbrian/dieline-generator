@@ -378,6 +378,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/compose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Compose
+         * @description Step 3, structural mode: the deterministic composition of our folded carton(s) in the
+         *     reference scene, then optionally the AI harmonization (``harmonize``).
+         */
+        post: operations["start_compose_api_projects__pid__compose_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -834,6 +855,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/references/{rid}/scene": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scene
+         * @description The packages to replace in this reference (normalised quads), as saved.
+         */
+        get: operations["get_scene_api_projects__pid__references__rid__scene_get"];
+        /**
+         * Put Scene
+         * @description Save the user's instances (count, which are enabled, corners, size, rotation...).
+         */
+        put: operations["put_scene_api_projects__pid__references__rid__scene_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/references/{rid}/scene/detect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Detect Scene
+         * @description Claude proposes the reference's packages (one quad each); the user confirms or edits.
+         */
+        post: operations["detect_scene_api_projects__pid__references__rid__scene_detect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/compose/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compose Preview
+         * @description A fast deterministic preview (no AI) at PREVIEW_EDGE: the composition or one of its
+         *     diagnostic layers. ``X-Compose-Report`` carries the checks and estimates.
+         */
+        get: operations["compose_preview_api_projects__pid__compose_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{pid}/versions/{vid}/layers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Layer
+         * @description A saved intermediate of a structural composition (deterministic precomposition, model
+         *     output, layers).
+         */
+        get: operations["version_layer_api_projects__pid__versions__vid__layers__name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1007,6 +1114,26 @@ export interface components {
             label_ko: string;
             /** Label En */
             label_en: string;
+        };
+        /**
+         * ComposeIn
+         * @description Step 3, structural mode: our folded carton in place of each package of the reference.
+         */
+        ComposeIn: {
+            /** Reference Id */
+            reference_id: string;
+            /** Flat Version Id */
+            flat_version_id?: string | null;
+            /**
+             * Harmonize
+             * @default false
+             */
+            harmonize: boolean;
+            /**
+             * Strength
+             * @default 0.7
+             */
+            strength: number;
         };
         /** Counts */
         Counts: {
@@ -1379,7 +1506,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "analyze" | "render" | "generate" | "merge" | "enhance" | "finish";
+            type: "analyze" | "render" | "generate" | "merge" | "enhance" | "finish" | "compose";
             /**
              * Status
              * @enum {string}
@@ -1734,6 +1861,20 @@ export interface components {
             /** Pending */
             pending: number;
         };
+        /** SceneIn */
+        SceneIn: {
+            /** Instances */
+            instances: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Settings
+             * @default {}
+             */
+            settings: {
+                [key: string]: unknown;
+            };
+        };
         /** SeparationItem */
         SeparationItem: {
             /**
@@ -2001,7 +2142,7 @@ export interface components {
             /** Reference Id */
             reference_id?: string | null;
             /** Form */
-            form?: ("flat" | "folded") | null;
+            form?: ("flat" | "folded" | "structural") | null;
             enhancement?: components["schemas"]["EnhancementOut"] | null;
             finishing?: components["schemas"]["FinishedOut"] | null;
             verify: components["schemas"]["VerifyOut"] | null;
@@ -2921,6 +3062,41 @@ export interface operations {
             };
         };
     };
+    start_compose_api_projects__pid__compose_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerateOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_job_api_jobs__job_id__get: {
         parameters: {
             query?: never;
@@ -3726,6 +3902,180 @@ export interface operations {
             header?: never;
             path: {
                 pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_scene_api_projects__pid__references__rid__scene_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    put_scene_api_projects__pid__references__rid__scene_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    detect_scene_api_projects__pid__references__rid__scene_detect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                rid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    compose_preview_api_projects__pid__compose_preview_get: {
+        parameters: {
+            query: {
+                reference_id: string;
+                flat_version_id: string;
+                layer?: string;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    version_layer_api_projects__pid__versions__vid__layers__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+                vid: string;
+                name: string;
             };
             cookie?: never;
         };
