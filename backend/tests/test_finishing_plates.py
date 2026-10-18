@@ -10,7 +10,9 @@ import zipfile
 
 import numpy as np
 import pymupdf
+import pytest
 
+from app.errors import ApiError
 from app.finishing import assets as fa
 from app.finishing import compose, masks, plates, svgclip
 from app.finishing import spec as fspec
@@ -26,6 +28,23 @@ def _flat(client, pid):
     res = client.post(f"/api/projects/{pid}/generate", json={})
     assert wait_job(client, res.json()["job_id"])["status"] == "done"
     return res.json()["version_id"]
+
+
+def _spec(pid):
+    """The project's spec with its ruler confirmed by the user (named_spot's one dimension
+    mark reads at confidence 0.75, which the plates' size gate rightly refuses)."""
+    spec = specs.load(repo.project_or_404(pid))
+    spec.scale = spec.scale.model_copy(update={"source": "user", "confidence": 1.0})
+    return spec
+
+
+def confirm_scale(client, pid):
+    """As a user would in the structural review: confirm the mm-per-unit ratio."""
+    spec = specs.load(repo.project_or_404(pid))
+    res = client.patch(
+        f"/api/projects/{pid}/specification", json={"mm_per_pt": spec.scale.mm_per_pt}
+    )
+    assert res.status_code == 200, res.json()
 
 
 def _fin(*assignments) -> fspec.FinishingSpec:
@@ -51,8 +70,8 @@ def _preview_masks(pid, spec, vid, fin) -> tuple[dict[str, np.ndarray], tuple[in
     return out, (h, w)
 
 
-def _plates(pid, spec, fin) -> zipfile.ZipFile:
-    return zipfile.ZipFile(io.BytesIO(plates.build(pid, spec, fin)))
+def _plates(pid, spec, fin, draft=False) -> zipfile.ZipFile:
+    return zipfile.ZipFile(io.BytesIO(plates.build(pid, spec, fin, draft=draft)))
 
 
 def assert_same_geometry(pid, spec, vid, fin) -> dict:
@@ -67,7 +86,7 @@ def assert_same_geometry(pid, spec, vid, fin) -> dict:
 def test_plates_match_the_preview_for_assets_panels_and_sheet(client, project):  # noqa: F811
     pid = project
     vid = _flat(client, pid)
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     panel = spec.panels[0].id
     fin = _fin(
         ("foil.gold", [("asset", "1:2")]),  # ring with a counter
@@ -93,7 +112,7 @@ def test_panel_plates_follow_the_irregular_outline(client, project):  # noqa: F8
     must stop at the cut like the preview, not fill its box."""
     pid = project
     vid = _flat(client, pid)
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     for p in spec.panels:
         fin = _fin(("surface.matte_lamination", [("panel", p.id)]))
         assert_same_geometry(pid, spec, vid, fin)
@@ -141,7 +160,7 @@ def _with_opening(spec, box):
 def test_openings_are_cut_out_of_every_plate(client, project):  # noqa: F811
     pid = project
     vid = _flat(client, pid)
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     # A window through the ring logo and the panel under it.
     win = _with_opening(spec, (415, 135, 445, 165))
     panel = next(
@@ -163,13 +182,14 @@ def test_openings_are_cut_out_of_every_plate(client, project):  # noqa: F811
 
 def test_plates_register_on_the_page_in_k_without_the_dieline(client, project):  # noqa: F811
     pid = project
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     fin = _fin(("foil.gold", [("asset", "1:2")]))
     z = _plates(pid, spec, fin)
     doc = pymupdf.open(stream=z.read("foil_gold.pdf"), filetype="pdf")
     page = doc[0]
-    assert abs(page.rect.width - spec.page.width_pt) < 1e-3
-    assert abs(page.rect.height - spec.page.height_pt) < 1e-3
+    k = plates.physical_factor(spec)  # real size (here 0.99999: the ruler reads ~PDF points)
+    assert abs(page.rect.width - spec.page.width_pt * k) < 1e-3
+    assert abs(page.rect.height - spec.page.height_pt * k) < 1e-3
     box = pymupdf.Rect()
     for d in page.get_drawings():
         box |= d["rect"]
@@ -191,12 +211,16 @@ def test_plates_register_on_the_page_in_k_without_the_dieline(client, project): 
 
 def test_a_figma_asset_without_its_outline_is_reported_not_guessed(client, project):  # noqa: F811
     pid = project
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     fa.svg_path(pid, "1:8").unlink()  # the export failed (and Figma is not reachable in tests)
-    z = _plates(pid, spec, _fin(("foil.gold", [("asset", "1:2"), ("asset", "1:8")])))
+    fin = _fin(("foil.gold", [("asset", "1:2"), ("asset", "1:8")]))
+    with pytest.raises(ApiError) as e:  # never a production export with a hole in it
+        _plates(pid, spec, fin)
+    assert e.value.body.code == "PLATES_NOT_VERIFIED"
+    z = _plates(pid, spec, fin, draft=True)
     plate = json.loads(z.read("finishing.json"))["plates"][0]
     assert plate["missing_targets"] == ["1:8"] and plate["approximate_assets"] == []
-    page = pymupdf.open(stream=z.read("foil_gold.pdf"), filetype="pdf")[0]
+    page = pymupdf.open(stream=z.read("DRAFT_foil_gold.pdf"), filetype="pdf")[0]
     assert not page.get_images()  # no bitmap guessed from the printed ink
 
 
@@ -219,7 +243,7 @@ MASKED = (
 def test_clip_paths_and_masks_inside_an_svg_are_honoured(client, project):  # noqa: F811
     pid = project
     vid = _flat(client, pid)
-    spec = specs.load(repo.project_or_404(pid))
+    spec = _spec(pid)
     fa.svg_path(pid, "1:2").write_text(CLIPPED)  # left half of a disc
     fin = _fin(("foil.gold", [("asset", "1:2")]))
     assert_same_geometry(pid, spec, vid, fin)
@@ -238,7 +262,7 @@ def test_clip_paths_and_masks_inside_an_svg_are_honoured(client, project):  # no
     boxes = [p.clip for p in svgclip.pieces(MASKED)]
     assert None in boxes and (10, 10, 50, 50) in boxes
     fa.svg_path(pid, "1:2").write_text(MASKED)
-    z = _plates(pid, spec, fin)
+    z = _plates(pid, spec, fin, draft=True)
     assert json.loads(z.read("finishing.json"))["plates"][0]["approximate_assets"] == ["1:2"]
 
 
@@ -252,3 +276,96 @@ def test_svg_transforms_compose_into_the_clip_box():
     clipped = [p for p in svgclip.pieces(svg) if p.clip is not None]
     # viewBox halves everything: ((20 + 2*5) / 2, (10 + 2*5) / 2) .. ((20 + 2*15) / 2, (10 + 2*25) / 2)
     assert clipped[0].clip == (15.0, 10.0, 25.0, 30.0) and clipped[0].exact
+
+
+# ---- production preflight ------------------------------------------------------------------
+
+
+def test_exact_plates_export_for_production_with_a_clean_self_check(client, project):  # noqa: F811
+    pid = project
+    spec = _spec(pid)
+    z = _plates(
+        pid, spec, _fin(("foil.gold", [("asset", "1:2")]), ("relief.emboss", [("asset", "1:8")]))
+    )
+    m = json.loads(z.read("finishing.json"))
+    assert m["status"] == "exact_geometry_needs_printer_preflight" and m["preflight_issues"] == []
+    assert all(p["self_check"] == "passed" for p in m["plates"])
+    assert not any(n.startswith("DRAFT_") or n == "PREFLIGHT.txt" for n in z.namelist())
+    # Physical size: the manifest's millimetres are the page in the project's own scale.
+    assert m["page_mm"][0] == round(spec.page.width_pt * spec.scale.mm_per_pt, 3)
+    doc = pymupdf.open(stream=z.read("foil_gold.pdf"), filetype="pdf")
+    assert "DRAFT" not in doc.metadata["title"] and "100% K" in doc.metadata["subject"]
+
+
+def test_unverified_plates_are_refused_for_production_but_exportable_as_a_marked_draft(
+    client,
+    project,  # noqa: F811
+):
+    pid = project
+    confirm_scale(client, pid)
+    fa.svg_path(pid, "1:2").write_text(MASKED)  # a non-box mask: approximated
+    body = {
+        "base_revision": 0,
+        "assignments": [{"finish": "foil.gold", "targets": [{"kind": "asset", "id": "1:2"}]}],
+    }
+    assert client.put(f"/api/projects/{pid}/finishing", json=body).status_code == 200
+    pre = client.get(f"/api/projects/{pid}/finishing/preflight").json()
+    assert pre["exact"] is False
+    assert [(i["target"], i["status"], i["reason"]) for i in pre["issues"]] == [
+        ("1:2", "approximate", "svg_clip_box")
+    ]
+    res = client.get(f"/api/projects/{pid}/finishing/plates")
+    assert res.status_code == 409 and res.json()["error"]["code"] == "PLATES_NOT_VERIFIED"
+    assert res.json()["error"]["details"]["issues"][0]["target"] == "1:2"
+    draft = client.get(f"/api/projects/{pid}/finishing/plates", params={"draft": True})
+    assert draft.status_code == 200
+    assert "DRAFT" in draft.headers["content-disposition"]
+    z = zipfile.ZipFile(io.BytesIO(draft.content))
+    names = set(z.namelist())
+    assert {"DRAFT_foil_gold.pdf", "DRAFT_dieline.pdf", "PREFLIGHT.txt"} <= names
+    assert not any(n.endswith(".pdf") and not n.startswith("DRAFT_") for n in names)
+    m = json.loads(z.read("finishing.json"))
+    assert m["status"] == "DRAFT_NOT_FOR_PRODUCTION"
+    assert z.read("README.txt").decode().startswith("!!! 검토용 초안 (DRAFT)")
+    doc = pymupdf.open(stream=z.read("DRAFT_foil_gold.pdf"), filetype="pdf")
+    assert doc.metadata["title"].startswith("DRAFT - NOT FOR PRODUCTION")
+    # The preview is not affected.
+    assert client.get(f"/api/projects/{pid}/finishing").json()["revision"] == 1
+
+
+def test_self_check_catches_rgb_layers_and_wrong_size(client, project):  # noqa: F811
+    pid = project
+    spec = _spec(pid)
+    doc = pymupdf.open()
+    page = doc.new_page(width=100, height=100)
+    page.draw_rect(pymupdf.Rect(10, 10, 20, 20), color=None, fill=(0, 0, 0))
+    doc.add_ocg("Dieline (do not print)", on=True)
+    problems = plates.self_check(doc.tobytes(), spec, allow_images=False)
+    assert {"page_size", "optional_content_layers", "rgb_paint", "no_k_fill"} <= set(problems)
+
+
+def test_plates_are_written_at_real_size_and_need_a_confirmed_ruler(client, project):  # noqa: F811
+    """A Figma page is in pixels: its plates must be scaled to millimetres (Zentra: 1920 px =
+    512 mm, which Illustrator would otherwise read as 677 mm), and only from a ruler that is
+    not a guess."""
+    pid = project
+    weak = specs.load(repo.project_or_404(pid))  # one dimension mark: confidence 0.75
+    pre = plates.preflight(pid, weak, _fin(("foil.gold", [("asset", "1:2")])))
+    assert [i["reason"] for i in pre["issues"]] == ["scale_unverified"]
+    # A Figma-like scale: 0.2667 mm per unit (Zentra's dimension marks).
+    spec = _spec(pid)
+    spec.scale = spec.scale.model_copy(update={"mm_per_pt": 0.26666666666666666})
+    z = _plates(pid, spec, _fin(("foil.gold", [("asset", "1:2")])))
+    m = json.loads(z.read("finishing.json"))
+    k = 0.26666666666666666 / (25.4 / 72)
+    assert abs(m["physical_factor"] - k) < 1e-6
+    for name in ("foil_gold.pdf", "dieline.pdf"):
+        page = pymupdf.open(stream=z.read(name), filetype="pdf")[0]
+        width_mm = page.rect.width * 25.4 / 72
+        assert abs(width_mm - spec.page.width_pt * 0.26666666666666666) < 0.01, name
+    # The ring (60 units at x=400..460) lands at 400k..460k pt, i.e. 60 units * 0.2667 mm wide.
+    page = pymupdf.open(stream=z.read("foil_gold.pdf"), filetype="pdf")[0]
+    box = pymupdf.Rect()
+    for d in page.get_drawings():
+        box |= d["rect"]
+    assert abs(box.x0 - 400 * k) < 0.5 and abs(box.width * 25.4 / 72 - 16.0) < 0.15

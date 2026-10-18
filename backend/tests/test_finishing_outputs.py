@@ -60,6 +60,9 @@ def test_plates_are_black_vectors_in_page_coordinates(client, project):  # noqa:
             {"finish": "surface.matte_lamination", "targets": [{"kind": "sheet"}]},
         ],
     )
+    from tests.test_finishing_plates import confirm_scale
+
+    confirm_scale(client, pid)
     res = client.get(f"/api/projects/{pid}/finishing/plates")
     assert res.status_code == 200 and res.headers["content-type"] == "application/zip"
     z = zipfile.ZipFile(io.BytesIO(res.content))

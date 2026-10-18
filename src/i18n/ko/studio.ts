@@ -325,8 +325,13 @@ export const studio = {
       },
       plates: {
         download: '판 파일 내려받기 (PDF·ZIP)',
-        body: '박·형압·UV 등 후가공별 판(검정 100%) PDF와 사양 JSON이 들어 있어요. 인쇄소에 전달용',
+        body: '후가공별 판(K 100%) PDF, 칼선 PDF, 사양 JSON이 들어 있어요. 인쇄소 확인(프리플라이트)을 거친 뒤 생산에 쓰세요.',
         unsaved: '변경을 저장한 뒤 내려받을 수 있어요.',
+        checking: '판 파일 사전 점검 중…',
+        blockedTitle: '생산용 판 파일을 만들 수 없어요',
+        blockedBody: '아래 요소의 모양이 근사치이거나 빠져 있어서, 판이 원본과 정확히 같다고 보장할 수 없어요. 미리보기는 그대로 볼 수 있어요.',
+        issue: (name: string, message: string) => `${name}: ${message}`,
+        draft: '검토용 초안 받기 (생산 불가 · DRAFT 표시)',
       },
       applyTo: {
         assets: (n: number) => `선택한 요소 ${n}개에 적용`,

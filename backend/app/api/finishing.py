@@ -244,16 +244,44 @@ def finishing_sweep(pid: str, version_id: str, revision: int | None = None, ligh
     return Response(gif, media_type="image/gif", headers={"Cache-Control": "no-store"})
 
 
+class PreflightIssueOut(BaseModel):
+    assignment_id: str
+    finish: str
+    target: str
+    name: str
+    status: Literal["approximate", "missing"]
+    reason: str | None
+    message: str  # Korean
+
+
+class PreflightOut(BaseModel):
+    revision: int
+    exact: bool  # every target is exact source geometry: a production export is allowed
+    issues: list[PreflightIssueOut]
+
+
+@router.get("/projects/{pid}/finishing/preflight", response_model=PreflightOut)
+def finishing_preflight(pid: str, revision: int | None = None) -> PreflightOut:
+    """Can the plates of a revision be exported for production? Lists every approximate or
+    missing target (the preview is not affected)."""
+    spec = assets_api._ready(pid)
+    fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
+    pre = plates.preflight(pid, spec, fin)
+    return PreflightOut(revision=fin.revision, exact=pre["exact"], issues=pre["issues"])
+
+
 @router.get("/projects/{pid}/finishing/plates")
-def finishing_plates(pid: str, revision: int | None = None):
-    """The finishing plates for the printer: one vector PDF per finish (100% black art in
-    dieline coordinates, the dieline on a non-printing layer) and the specification JSON."""
+def finishing_plates(pid: str, revision: int | None = None, draft: bool = False):
+    """The finishing plates for the printer: one vector PDF per finish (100% K, clipped to the
+    board + bleed, in the source page's coordinates), the dieline as its own PDF and the
+    specification JSON. With approximate or missing geometry a production export is refused
+    (409 PLATES_NOT_VERIFIED); ``draft=true`` exports it marked DRAFT / not for production."""
     spec = assets_api._ready(pid)
     fin = fspec.load(pid) if revision is None else fspec.load_revision(pid, revision)
     if not any(a.enabled for a in fin.assignments):
         raise ApiError(409, "FINISHING_EMPTY", "적용된 후가공이 없습니다.")
-    data = plates.build(pid, spec, fin)
-    name = f"finishing-plates-r{fin.revision}.zip"
+    data = plates.build(pid, spec, fin, draft=draft)
+    name = f"finishing-plates-r{fin.revision}{'-DRAFT' if draft else ''}.zip"
     return Response(
         data,
         media_type="application/zip",

@@ -306,9 +306,10 @@ def main() -> int:
             )
             structure[name] = {
                 "pages": len(doc),
+                # As Illustrator / Acrobat read it: PDF points are 1/72 inch.
                 "size_mm": [
-                    round(pg.rect.width * spec.scale.mm_per_pt, 2),
-                    round(pg.rect.height * spec.scale.mm_per_pt, 2),
+                    round(pg.rect.width * 25.4 / 72, 2),
+                    round(pg.rect.height * 25.4 / 72, 2),
                 ],
                 "layers": [o["name"] for o in doc.get_ocgs().values()],
                 "drawings": len(pg.get_drawings()),
@@ -330,9 +331,13 @@ def main() -> int:
         round(spec.page.height_pt * spec.scale.mm_per_pt, 2),
     ]
     check(
-        "every PDF has the source page size",
-        all(v["size_mm"] == page_mm for v in structure.values()),
+        "every PDF is the carton's real size (mm, as a PDF reader measures it)",
+        all(
+            abs(v["size_mm"][0] - page_mm[0]) < 0.05 and abs(v["size_mm"][1] - page_mm[1]) < 0.05
+            for v in structure.values()
+        ),
         page_mm=page_mm,
+        pdf_mm={k: v["size_mm"] for k, v in structure.items()},
     )
     # A visual: the preview's gold mask (red) over the plate raster (cyan), around the logo.
     gold_plate = plates.plate_coverage(z.read("foil_gold.pdf"), spec, max(image.shape[:2]))

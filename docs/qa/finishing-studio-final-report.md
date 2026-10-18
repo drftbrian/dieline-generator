@@ -2,7 +2,7 @@
 
 - **Branch:** `fix/finishing-studio-stabilization`, based on `feat/asset-based-finishing-studio`
   at `d119806`.
-- **Not merged** into the base branch or `main`.
+- **Not merged** into the base branch or `main`. Section 9 is the final production-safety review.
 - **Details:** `finishing-studio-audit.md` (issues) and `finishing-visual-validation.md`
   (render fidelity).
 
@@ -52,7 +52,7 @@ render (v1–v4 checksums pinned in tests), AI appearance/enhancement, undo/redo
 
 ## 3. Test results
 
-- **Backend (`pnpm test:api`):** **241 passed, 0 failed, 0 skipped** (5:40). That includes the new
+- **Backend (`pnpm test:api`):** **241 passed, 0 failed, 0 skipped** (5:40) at the stabilization commit; **245 passed** after the final review (section 9). That includes the new
   `test_finishing_plates.py` (7), `test_finishing_reliability.py` (10) and 2 new regression
   tests; one existing plate test was updated to the new, intended behaviour (separate dieline,
   K fill).
@@ -103,7 +103,8 @@ See `finishing-visual-validation.md`.
 - **Method:** `plates.compare(pid, spec, vid, fin)` rasterises each plate PDF on the version's
   own pixel grid and compares it with the preview's union mask for that finish. It reports
   `wrong_px` (disagreement inside the board, away from the 2 px anti-aliased edge),
-  `beyond_bleed_px` and `iou`.
+  `beyond_bleed_px` and `iou`. Plates are at real size, so it maps them back by
+  `physical_factor` first.
 - **Tolerance:** the bleed edge is a traced outline, accurate to `OUTLINE_TOL_MM` (0.19 mm).
   That tolerance only moves the outer edge of the bleed, outside the product.
 - **Covered by tests:**
@@ -113,64 +114,151 @@ See `finishing-visual-validation.md`.
   - Every panel of an irregular carton (tuck and dust flaps).
   - A sheet target, and a window cut through a logo and its panel.
   - SVG clip-paths and masks, and a missing outline.
-  - Page size and registration within 0.5 pt of the node box.
+  - Real size (a 0.2667 mm/unit ruler gives a plate 16.0 mm wide for a 60-unit ring).
+  - Self-check failures: wrong page size, layers, RGB paint, no K.
 - **Zentra:** `foil.gold`, `relief.emboss`, `coating.spot_uv` and `surface.matte_lamination`
   all had `wrong_px` 0, `beyond_bleed_px` 0 and IoU 1.0 at 10.36 px/mm. In the visual overlay
   `F_gold_plate_vs_preview.png`, white means both agree; it has no red or cyan pixels.
-- **PDF structure:**
-  - One page per plate, at the source page size.
-  - No optional-content layers.
-  - Fills `0 0 0 1 k`, no RGB operators.
-  - The dieline is a separate magenta-stroke `dieline.pdf`.
-  - The manifest lists `bleed_mm`, `approximate_assets` and `missing_targets`.
-- **Not verified:** opening the files in Illustrator or Acrobat preflight, or a RIP. That needs a
-  person.
+- **PDF structure on Zentra** (as a PDF reader measures it; points are 1/72 in):
+  - Every plate and `dieline.pdf` is **512.0 × 288.0 mm**, the carton's size from its
+    dimension marks.
+  - One page each, no optional-content layers.
+  - Fills `0 0 0 1 k`, no RGB operators, no embedded images.
+  - The dieline is separate.
+  - The manifest's `status` is `exact_geometry_needs_printer_preflight`, and every plate's
+    `self_check` is `passed`.
+- **Not verified by a person:** opening the files in Illustrator or Acrobat, or sending them to
+  a RIP. The procedure is in section 9.
 
 ## 6. Remaining limitations
 
 - **Performance:** a whole-sheet finish at 4K takes about 10–12 s cold and 4–7 s per edit, with
   2.4–2.7 GB peak memory. This is unchanged from `d119806`.
-- **Plate export time:** generating the plates now takes about 0.8 s (it was 0.06 s), because
-  the board is traced.
-- **Approximated clips:** non-rectangular SVG clips and masks are approximated by their box (and
-  reported). Nested transforms are supported; CSS-class styling in SVGs is not.
+- **Plate export time:** about 1 s, because the board is traced.
+- **Registration with the source PDF:** plates are written at real size. For a Figma source
+  (pixels), overlaying a plate on the *original source PDF* needs that PDF scaled by
+  `physical_factor` (Zentra: 0.7559). Plates register with each other and with `dieline.pdf`
+  as they are.
+- **Real size depends on the ruler:**
+  - It comes from the project's ruler (dimension marks or a user value).
+  - A guessed ruler (a Figma project with no marks) blocks a production export, as does a weak
+    one (dimension marks below 0.9 confidence; the synthetic fixture reads 0.75).
+  - The user then confirms mm per unit in the structural review.
+- **Approximated clips:** non-rectangular SVG clips and masks are approximated by their box,
+  which blocks a production export. Nested transforms are supported; CSS-class styling in SVGs
+  is not.
 - **Ignored SVG effects:** filters such as drop shadows are ignored in both the preview and the
-  plates, which is right for finishing, but undocumented in Figma terms.
+  plates, which is right for finishing.
 - **Glue flap:** still found by panel name only.
 - **No in-place re-import:** a changed Figma frame is a new project, and finishing assignments do
   not carry over.
 - **Unvalidated looks:** finishes without photo evidence (epoxy/PU dome, raised UV, soft-touch,
   satin/matte varnish, uncoated) are modelled, not validated.
-- **New gold look:** gold now reads paler (champagne), as in the photos. Designers used to the
-  old saturated look will notice.
+- **New gold look:** gold now reads paler (champagne), as in the photos.
 
-## 7. Manufacturing disclaimer
+## 7. Visual simulation vs. manufacturing specification
 
-- **What the app shows is a visual simulation.** The tone levels come from a few study photos.
+| What | What it is | Verified by |
+|---|---|---|
+| The preview, light sweep and finished versions | **Visual simulation.** Material looks with tone levels from a few study photos. They show *where* finishes go exactly, and *how they look* only approximately. | Gallery comparison (section 4, visual validation doc). Not a colour or gloss proof. |
+| AI 사실감 | **Visual simulation.** It may only adjust light inside the masks, and is dropped unless closer to the photos. | Automated checks only. |
+| Manufacturing checks (line width, gaps, distances, glue flap, combinations) | **Advice** from research defaults. | Not a printer's specification. |
+| Plate geometry (shape, position, real size, cut-outs) | **Exact source geometry**, automatically checked against the preview and the source. | Tests + Zentra E2E + `self_check`. |
+| Plate suitability for production (bleed amount, trapping, minimum line width, foil/die tolerances, emboss depth, coating order, colour/ink setup) | **Not verified.** | Only the printer / die maker, with a physical proof. |
+
+## 8. Manufacturing disclaimer
+
+- **What the app shows is a visual simulation.**
 - **The plates are working files with registered vector geometry.** They are not a verified
   production specification.
-- **Manufacturing limits are research defaults, not a printer's specification.** These are the
-  minimum line widths, gaps, distances to cuts and folds, foil and die tolerances, bleed and
-  trapping. Every printer and die maker has their own.
+- **"Exact geometry" means exactly that:** the shapes are the source's. It is not production
+  approval.
+- **A DRAFT export must never be used for production.** It is marked in every file name, in the
+  PDF title and subject, in `finishing.json` (`status`) and in `README.txt` / `PREFLIGHT.txt`.
 - **Before production,** the printer must confirm the plates, bleed, emboss depth, foil choice and
   coating order against their process and a physical proof.
-- **Passing tests proves only consistency:** the preview and plates agree with each other and
-  with the source. It does not prove a manufactured result.
+- **Passing tests proves only consistency:** the preview and plates agree with each other, with
+  the source and with the ruler. It does not prove a manufactured result.
 
-## 8. Merge recommendation
+## 9. Final production-safety review
 
-**READY WITH KNOWN LIMITATIONS**
+### Findings in this review
 
-- **The P0 export defects are fixed and pinned by tests.** Plate geometry equals the preview
-  mask inside the board on the synthetic cases and on Zentra (IoU 1.0, 0 disagreeing pixels).
-- **The P1 reliability defects are fixed and pinned by tests.** These were the save races, atomic
-  writes, conflicts that dropped work, cache keys and missing targets. The conflict UI was also
-  checked in a real browser.
-- **No existing behaviour regressed.** The full backend suite passes, and the frontend
-  typechecks, lints and builds.
+1. **Unverified geometry could be exported as if final.**
+   - **Before:** plates with approximate or missing geometry were listed only in
+     `finishing.json`.
+   - **Now:**
+     - `GET /finishing/preflight` lists every approximate or missing target and an unverified
+       ruler.
+     - A production export is refused with **409 `PLATES_NOT_VERIFIED`**, and the panel shows
+       the reasons in red.
+     - The only other export is `?draft=true` (button "검토용 초안 받기 (생산 불가 · DRAFT
+       표시)"), marked DRAFT everywhere.
+     - Every plate also passes `self_check` (size, single page, no layers, K only, no images)
+       or the production export fails with 409 `PLATES_SELF_CHECK_FAILED`.
+     - The preview is unchanged.
+2. **P0, found in this review: plates were not at physical size for Figma sources.**
+   - **Cause:** Figma pages are in pixels. Zentra's page is 1920 × 1080 units, which a PDF
+     reader reads as **677.3 × 381.0 mm**, while the carton (dimension marks, 0.2667 mm/unit) is
+     **512 × 288 mm**. Every plate and the dieline would have been made 1.32× too large.
+   - **Why the earlier check missed it:** it multiplied PDF points by the project's own ruler,
+     the same wrong conversion the plate used.
+   - **Now:** plates and `dieline.pdf` are written at real size (`physical_factor`). The E2E
+     measures them as a PDF reader does: 512.0 × 288.0 mm. A guessed or weak ruler blocks a
+     production export.
+   - **Covered by:** `test_plates_are_written_at_real_size_and_need_a_confirmed_ruler`.
+
+### Regression verification
+- **Backend:** `pnpm test:api` **245 passed, 0 failed, 0 skipped** (5:34); ruff check and format clean.
+- **Frontend:** `pnpm typecheck`, `pnpm lint` and `pnpm build` pass.
+- **Branch scope:** it changes only finishing code, tests and docs (`git diff d119806 --stat`).
+  Nothing changed in `figma/`, `pdf/`, `render/layers.py`, `render/shading.py`,
+  `render/folds.py`, `services/pipeline.py`, `services/merge.py` or the AI code.
+- **Deterministic renders unchanged:**
+  - On a copy of Zentra, the deterministic v4 flat render was produced again with this branch.
+    It is **pixel-identical** (max difference 0) to `ver_f20dfed3e319`, made earlier with the
+    same settings.
+  - v1–v4 checksums stay pinned in `tests/test_flat_render.py`.
+- **Source unchanged:** the source PDF and existing version images had identical SHA-256 hashes
+  before and after (E2E and determinism runs). Finishing never writes to the source, the Figma
+  tree, or a render.
+
+### Manual preflight: Illustrator
+1. Unzip, and open `dieline.pdf` and one plate. In *Document Setup*, the artboard must equal
+   `finishing.json` → `page_mm` (Zentra: 512 × 288 mm).
+2. *File → Place* the plate onto `dieline.pdf` at (0, 0) at 100%, or paste in place. The art
+   must sit inside the cut line, with no more than `bleed_mm` (1 mm) past it, and windows must
+   be open.
+3. *Window → Separations Preview*: only **Black** shows ink, at 100%. No C/M/Y and no spot
+   colours on a plate.
+4. *Window → Document Info → Linked/Embedded images*: none, unless the file is a DRAFT.
+5. *Layers*: no hidden layers; the plate holds only the finish art.
+6. Zoom 400% on small text and thin lines; compare against the manufacturing checks' warnings.
+7. Check that file names, titles and `finishing.json` → `status` contain no `DRAFT`.
+
+### Manual preflight: Acrobat Pro
+1. *Document Properties → Description*: page size = `page_mm`; title without "DRAFT".
+2. *Print Production → Output Preview*: Separations show only Process Black; Total Area
+   Coverage stays at 100% max.
+3. *Print Production → Preflight* → PDF/X-4 or the printer's profile → *Analyze*. Expected:
+   no RGB, no transparency issues, and the one page. Missing OutputIntent / TrimBox warnings
+   are expected, because the plate carries no print profile. The printer sets those.
+4. *Layers panel*: empty.
+5. Overlay check: *Compare Files* of a plate against `dieline.pdf`, or print both on film and
+   overlay them.
+
+## 10. Merge recommendation
+
+**READY WITH KNOWN LIMITATIONS** (into `feat/asset-based-finishing-studio`)
+
+- **No blocking issue remains.**
+  - The plates are exact source geometry, at real size, in 100% K, clipped to the board with
+    openings, with a separate dieline.
+  - Anything unverified (approximate or missing geometry, an unconfirmed ruler, a failed
+    self-check) cannot be exported for production, only as a clearly marked DRAFT.
+  - Saves are race-free, and the deterministic renders and sources are unchanged.
 - **What keeps it from "READY":**
-  - The plates have not been opened in Illustrator or preflighted by a printer.
+  - No person has yet opened the plates in Illustrator/Acrobat or with a printer (procedure
+    above).
   - Several finishes have no photo evidence.
   - A whole-sheet finish at 4K is slow.
-
-None of these produces incorrect or unsafe output, and all three are documented above.

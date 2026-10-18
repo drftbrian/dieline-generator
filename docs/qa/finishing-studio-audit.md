@@ -30,6 +30,8 @@ Severity:
 | 13 | P2 | Lamination and flood-UV study photos never reach AI 사실감 | confirmed, fixed |
 | 14 | — | "Re-import into the same project serves stale geometry" | **not confirmed**, see below |
 | 15 | P2 | A whole-sheet finish at 4K is heavy (4–7 s per edit, about 2.5 GB) | measured, not fixed (known limitation) |
+| 16 | P0 | Plates for a Figma source are not at real size (Zentra: 677 × 381 mm instead of 512 × 288) | found in the final review, fixed |
+| 17 | P0 | Approximate or missing geometry could still be exported as a normal plate set | found in the final review, fixed (production export blocked, DRAFT only) |
 
 ## Details
 
@@ -166,3 +168,26 @@ the gallery.
   run on `backend/data`.
 - The browser conflict scenario ran on a QA instance (API :8001 on the copy, Vite :5174,
   headless Chrome).
+
+### 16. P0: plates not at real size (final review)
+- **Where:** `plates.build` wrote the page in source units.
+- **Root cause:** Figma exports 1 px = 1 pt, so Zentra's 1920 × 1080 page reads as
+  677.3 × 381.0 mm in any PDF reader. The carton is 512 × 288 mm by its dimension marks
+  (0.2667 mm/unit). The first E2E size check used the project's ruler to convert, so it could not
+  see this.
+- **Fix:** `physical_factor` / `_to_physical` scale plates and the dieline to real size, and the
+  E2E now measures in PDF points. A guessed or weak ruler is a preflight issue.
+- **Reproduce:** `test_plates_are_written_at_real_size_and_need_a_confirmed_ruler`.
+
+### 17. P0: no production gate (final review)
+- **Where:** `GET /finishing/plates`.
+- **Root cause:** it returned plates with `approximate_assets` and `missing_targets` like any
+  others; the only warning was inside `finishing.json`.
+- **Fix:**
+  - `plates.preflight` + `GET /finishing/preflight`.
+  - A production export is refused with 409 `PLATES_NOT_VERIFIED`, and a failed `self_check`
+    is refused with `PLATES_SELF_CHECK_FAILED`.
+  - `?draft=true` gives a DRAFT-marked export: file names, PDF title and subject, manifest
+    `status`, `README.txt`, `PREFLIGHT.txt`.
+  - The panel shows the reasons and a draft-only button.
+- **Reproduce:** `test_unverified_plates_are_refused_for_production_but_exportable_as_a_marked_draft`.

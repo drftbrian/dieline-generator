@@ -705,6 +705,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{pid}/finishing/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finishing Preflight
+         * @description Can the plates of a revision be exported for production? Lists every approximate or
+         *     missing target (the preview is not affected).
+         */
+        get: operations["finishing_preflight_api_projects__pid__finishing_preflight_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{pid}/finishing/plates": {
         parameters: {
             query?: never;
@@ -714,8 +735,10 @@ export interface paths {
         };
         /**
          * Finishing Plates
-         * @description The finishing plates for the printer: one vector PDF per finish (100% black art in
-         *     dieline coordinates, the dieline on a non-printing layer) and the specification JSON.
+         * @description The finishing plates for the printer: one vector PDF per finish (100% K, clipped to the
+         *     board + bleed, in the source page's coordinates), the dieline as its own PDF and the
+         *     specification JSON. With approximate or missing geometry a production export is refused
+         *     (409 PLATES_NOT_VERIFIED); ``draft=true`` exports it marked DRAFT / not for production.
          */
         get: operations["finishing_plates_api_projects__pid__finishing_plates_get"];
         put?: never;
@@ -1478,6 +1501,35 @@ export interface components {
              * @default []
              */
             evidence: string[];
+        };
+        /** PreflightIssueOut */
+        PreflightIssueOut: {
+            /** Assignment Id */
+            assignment_id: string;
+            /** Finish */
+            finish: string;
+            /** Target */
+            target: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approximate" | "missing";
+            /** Reason */
+            reason: string | null;
+            /** Message */
+            message: string;
+        };
+        /** PreflightOut */
+        PreflightOut: {
+            /** Revision */
+            revision: number;
+            /** Exact */
+            exact: boolean;
+            /** Issues */
+            issues: components["schemas"]["PreflightIssueOut"][];
         };
         /** ProjectCreate */
         ProjectCreate: {
@@ -3429,10 +3481,44 @@ export interface operations {
             };
         };
     };
+    finishing_preflight_api_projects__pid__finishing_preflight_get: {
+        parameters: {
+            query?: {
+                revision?: number | null;
+            };
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightOut"];
+                };
+            };
+            /** @description Default Response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     finishing_plates_api_projects__pid__finishing_plates_get: {
         parameters: {
             query?: {
                 revision?: number | null;
+                draft?: boolean;
             };
             header?: never;
             path: {
