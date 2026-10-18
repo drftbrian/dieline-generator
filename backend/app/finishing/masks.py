@@ -11,6 +11,7 @@ colour) - approximate where objects overlap, reported as ``exact: False``.
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
@@ -18,6 +19,7 @@ from collections.abc import Callable
 import numpy as np
 import pymupdf
 
+from app.finishing import svgclip
 from app.render import look
 from app.render.layers import Layers, board_coverage, frame
 from app.spec.models import FLAT_LOOK, Specification
@@ -76,26 +78,42 @@ def _place(alpha: np.ndarray, h: int, w: int, dy: int, dx: int) -> np.ndarray:
 
 def place_svg(page, svg: str, bbox: list[float], clip: list[float] | None):
     """Draw an outlined SVG on ``page`` at ``bbox`` (page pt), only its part inside the clipping
-    ancestors' ``clip``, as vectors. Returns the drawn rectangle (None when fully clipped)."""
-    src = pymupdf.open(stream=svg.encode("utf-8"), filetype="svg")
-    pdf = pymupdf.open("pdf", src.convert_to_pdf())
+    ancestors' ``clip`` and inside its own clip-paths and masks (``svgclip``), as vectors.
+    Returns the drawn rectangle (None when fully clipped)."""
     target = pymupdf.Rect(*bbox)
-    if clip:  # clipping ancestors: draw only the visible part, at its own place
-        visible = target & pymupdf.Rect(*clip)
-        if visible.is_empty:
-            return None
+    drawn = None
+    for piece in svgclip.pieces(svg):
+        src = pymupdf.open(stream=piece.svg.encode("utf-8"), filetype="svg")
+        pdf = pymupdf.open("pdf", src.convert_to_pdf())
         sw, sh = pdf[0].rect.width, pdf[0].rect.height
         kx, ky = sw / max(target.width, 1e-6), sh / max(target.height, 1e-6)
-        part = pymupdf.Rect(
-            (visible.x0 - target.x0) * kx,
-            (visible.y0 - target.y0) * ky,
-            (visible.x1 - target.x0) * kx,
-            (visible.y1 - target.y0) * ky,
-        )
-        page.show_pdf_page(visible, pdf, 0, clip=part, keep_proportion=False)
-        return visible
-    page.show_pdf_page(target, pdf, 0, keep_proportion=False)
-    return target
+        visible = pymupdf.Rect(target)
+        if clip:  # clipping ancestors: draw only the visible part, at its own place
+            visible &= pymupdf.Rect(*clip)
+        if piece.clip is not None:  # the piece's own clip, from SVG pt to page pt
+            x0, y0, x1, y1 = piece.clip
+            visible &= pymupdf.Rect(
+                target.x0 + x0 / kx, target.y0 + y0 / ky, target.x0 + x1 / kx, target.y0 + y1 / ky
+            )
+        if visible.is_empty or visible.width <= 0 or visible.height <= 0:
+            continue
+        if visible == target:
+            page.show_pdf_page(target, pdf, 0, keep_proportion=False)
+        else:
+            part = pymupdf.Rect(
+                (visible.x0 - target.x0) * kx,
+                (visible.y0 - target.y0) * ky,
+                (visible.x1 - target.x0) * kx,
+                (visible.y1 - target.y0) * ky,
+            )
+            page.show_pdf_page(visible, pdf, 0, clip=part, keep_proportion=False)
+        drawn = visible if drawn is None else drawn | visible
+    return drawn
+
+
+def svg_exact(svg: str) -> bool:
+    """False when a clip or mask inside the SVG had to be approximated by its box."""
+    return all(p.exact for p in svgclip.pieces(svg))
 
 
 def svg_coverage(
@@ -159,7 +177,19 @@ def asset_mask(
 
     ``ink_layers`` gives the flat layers at ``long_edge`` for the PDF-only fallback (only
     called when there is no SVG)."""
-    key = (pid, structure, long_edge, asset["id"], asset.get("exact"))
+    # Keyed by the geometry itself (the SVG's content and the node's boxes), not only the node
+    # id: a changed vector or text outline can never reuse an old mask.
+    key = (
+        pid,
+        structure,
+        long_edge,
+        asset["id"],
+        asset.get("exact"),
+        hashlib.sha1(svg.encode()).hexdigest() if svg is not None else None,
+        tuple(asset["bbox"]),
+        tuple(asset["clip"]) if asset.get("clip") else None,
+        asset.get("color"),
+    )
     with _lock:
         if key in CACHE:
             CACHE.move_to_end(key)
